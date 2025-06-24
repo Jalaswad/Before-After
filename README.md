@@ -16,6 +16,14 @@ There are two ways to access the Paleobiology Database data used in this study. 
 
 The fossil occurrence analyes can be found and reproduced by opening 02_AllCalcs.html, which is accompanied by the source code 02_AllCalcs.qmd. The script for creating figures 2 and 3 are in 03_Differences-Figure3.html and 04_Stripes-Figure2.html and their accompanying .qmd files.
 
+The recommended order to go through the code is:
+ 01_download_pbdb_new.R
+ 02_AllCalcs.html (or .qmd)
+ 03_Differences-Figure3.html (or .qmd)
+ 04_Stripes-Figure2.html (or .qmd)
+
+ The .qmd files are Quarto markdown files for R and RStudio.
+
 Access the study’s .Rdata object, containing all data and results, using: piggyback!
 
 # This R code shows how to access a .Rdata file from a GitHub release using the piggyback package.
