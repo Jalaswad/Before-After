@@ -12,7 +12,7 @@ Contact: jalaswad@stanford.edu
 
 **All codes and data used in this paper are provided here for reproducibility.**
 
-There are two ways to access the Paleobiology Database data used in this study. You may either open pbdb.csv for the dataset utilized here, or if you wish to download straight from the database, you may use R and start with 01_download_pbdb_new.R to download the raw dataset used in this study with instructions on how to process and clean that data in 02_AllCalcs.html.
+There are two ways to access the Paleobiology Database data used in this study. You may either open the pbdb.csv file for the interval of your choice in the Pbdb-files folder to access the processed dataset utilized here, or if you wish to download straight from the database, you may use R and start with 01_download_pbdb_new.R to download the raw dataset used in this study with instructions on how to process and clean that data in 02_AllCalcs.html.
 
 The fossil occurrence analyes can be found and reproduced by opening 02_AllCalcs.html, which is accompanied by the source code 02_AllCalcs.qmd. The script for creating figures 2 and 3 are in 03_Differences-Figure3.html and 04_Stripes-Figure2.html and their accompanying .qmd files.
 
