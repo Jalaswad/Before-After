@@ -1,0 +1,1969 @@
+---
+title: "Supplementary Data - All Similarity Calculations"
+title-block-banner: "#014240"
+title-block-banner-color: "#FFFFFF"
+subtitle: "Climatic and Taxonomic Controls on the Simplification and Connectedness of Marine Ecosystems"
+description: "Jood Al Aswad<sup>1*</sup>, Mohamad Bazzi<sup>1</sup>, Justin L. Penn<sup>2</sup>, Pedro Monarrez<sup>1</sup> <sup>3</sup>,  Curtis Deutsch<sup>2</sup>, Jonathan L. Payne<sup>1</sup><br>"
+date: last-modified
+date-format: "YYYY-MM-DD"
+mainfont: Figtree
+sansfont: Figtree
+footnotes-hover: true
+reference-location: margin
+lang: en
+number-sections: false
+crossref:
+  chapters: true
+author:
+  - name: Jood Al Aswad
+    orcid: https://orcid.org/0000-0003-4360-7665
+    email: jalaswad@stanford.edu
+    url: https://github.com/Jalaswad
+    affiliations:
+      - name: Stanford University
+        department: Department of Earth and Planetary Sciences
+        address: CA 94305
+        country: USA
+        url: https://sustainability.stanford.edu/
+highlight-style: pygments
+fig-cap-location: top
+format:
+ html:
+    toc: true
+    toc-expand: 5
+    toc-location: left
+    code-fold: true
+    html-math-method: katex
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{=html}
+<style> 
+
+.author-info {
+  margin-left: 0;
+}
+
+.affiliation-info {
+  font-size: 0.8em;
+}
+
+.content {
+  margin-left: 50px;
+}
+</style>
+```
+
+## **Introduction**
+
+Code compiled and curated by J.A.A. and M.B. [Contact](mailto:jalaswad@stanford.edu) and [Contact](mailto:bazzi@stanford.edu)
+
+Correspondence and requests for materials should be addressed to J.A.A [Contact](mailto:jalaswad@stanford.edu)
+
+[This code is used to calculate the "Before" and "After" similarity values for each interval-set, and can be customized for an interval and/or data of your choosing. The calculations for all intervals in our analysis are nearly identical by using this script, with the exception of differences in the interval names and ages. Here, we provide an example using the calculations for the end-Cretaceous mass extinction.]{style="color:green"}
+
+## Libraries
+
+Begin by preparing all packages required for this script.
+
+```{r, message=FALSE}
+rpkg <- c("dplyr ggplot2 readr boot divvy terra divDyn paleobioDB conflicted piggyback CoordinateCleaner fossilbrush rgplates icosa tidyr tibble readr purrr downloadthis ggpubr")
+
+import_pkg <- function(x)
+  x |> trimws() |> strsplit("\\s+")  |> unlist() |> 
+  lapply(function(x) library(x, character.only = T)) |> 
+  invisible()
+
+rpkg |> import_pkg()
+
+# Resolve conflicted functions.
+conflicted::conflict_prefer(name = "filter", winner = "dplyr",losers = "stats")
+```
+
+## Custom functions
+
+Most of the functions we created for this script are stored here.
+
+```{r}
+#' @return calculate great circle distance in kilometers (km).
+#' @param R Earth mean radius (km)
+#' @param long1.r convert from degrees to radians for latitudes and longitudes.
+#' @export
+
+gcd.slc <- function(long1, lat1, long2, lat2) {
+  R <- 6371
+  long1.r <- long1*pi/180
+  long2.r <- long2*pi/180
+  lat1.r <- lat1*pi/180
+  lat2.r <- lat2*pi/180
+  d <- acos(sin(lat1.r)*sin(lat2.r) + cos(lat1.r)*cos(lat2.r) * cos(long2.r-long1.r)) * R
+  return(d) 
+  }
+
+#' @return calculate jaccard similarity coefficient
+#' @param 
+#' @param 
+#' @export
+
+jaccard_similarity <- function(x) {
+  js_table <- list()
+  for (k in seq_along(x)) {
+  
+  # Unique cells.
+  unique_cells <- unique(x[[k]]$cell)
+  jaccard_similarity_table <- data.frame(cell_x = character(), cell_y = character(), jaccard_similarity = numeric(), stringsAsFactors = F)
+  
+  for (i in 1:length(unique_cells)) {
+    cell_x <- unique_cells[i]
+    # Cell_x
+    unique_names_cell_x <- unique(x[[k]]$accepted_name[x[[k]]$cell == cell_x])
+    
+    for (j in 1:length(unique_cells)) {
+      cell_y <- unique_cells[j]
+      
+      # Duplicate comparisons.
+      if (cell_x == cell_y || cell_x > cell_y) {
+        next
+      }
+      
+      # Cell_y
+      unique_names_cell_y <- unique(x[[k]]$accepted_name[x[[k]]$cell == cell_y])
+      # Intersections.
+      intersection <- length(generics::intersect(unique_names_cell_x, unique_names_cell_y))
+      Un <- length(generics::union(unique_names_cell_x, unique_names_cell_y))
+      jaccard_similarity <- intersection/Un
+      # Combine results.
+      jaccard_similarity_table <- rbind(jaccard_similarity_table, data.frame(cell_x = cell_x, cell_y = cell_y, jaccard_similarity = jaccard_similarity))
+    }
+  }
+  
+  # Results.
+  js_table[[k]] <- jaccard_similarity_table 
+  }
+  return(js_table)
+}
+
+#' @return calculate jaccard similarity coefficient
+#' @param 
+#' @param 
+#' @export
+
+czekanowski_similarity <- function(x) {
+  2*abs(sum(x$minimum))/((sum(x$count_cell_x) + sum(x$count_cell_y)))
+}
+
+#' @return 
+#' @param 
+#' @param 
+#' @export
+
+# Cross-join function.
+gridComb <- function(x, cell, accepted_name) {
+  cA <- expand.grid(cell = unique(x$cell), unique(x$accepted_name)) |> setNames(nm = c("cell","accepted_name"))
+  return(cA)
+}
+
+#' @return 
+#' @param 
+#' @param 
+#' @export
+
+# Count taxon occurrence per unique cell combination.
+czekanowski_data_prep <- function(x, cell, accepted_name) {  
+  
+  count_taxa_x <- x |> 
+    group_by(cell, accepted_name) |>
+    summarize(count = n(), .groups = 'drop') |> rename("cell_x" = "cell", "count_cell_x" ="count")
+  
+  count_taxa_y <- x |> 
+    group_by(cell, accepted_name) |>
+    summarize(count = n(), .groups = 'drop') |> rename("cell_y" = "cell", "count_cell_y" ="count")
+
+  # Cell pairs.
+  cell <- unique(x[[cell]])
+  taxa <- unique(x[[accepted_name]])
+  
+  cell_combinations <- expand.grid(cell_x = cell, cell_y = cell,accepted_name = taxa) |>  filter(cell_x != cell_y)
+  
+  result <- cell_combinations |> 
+    left_join(count_taxa_x, by = c("cell_x","accepted_name"), relationship = "many-to-many") |> 
+    # Second join (y) 
+    left_join(count_taxa_y, by = c("cell_y", "accepted_name")) |> 
+    select("cell_x", "cell_y", "accepted_name", "count_cell_x", "count_cell_y") |>
+    # Replace NA with 0
+    replace_na(replace = list(count_cell_x = 0, count_cell_y = 0)) |> 
+    # Remove rows that at 0 in both count fields.
+    filter(!(count_cell_x == 0 & count_cell_y == 0)) |> 
+    # Remove duplicated cell combinations
+    filter(cell_x == cell_y | cell_x > cell_y) |> 
+    # Split by cell combination
+    group_split(cell_x,cell_y)
+    
+    return(result)
+}
+
+# To calculate BC:
+BC <- function(genera, localities) {
+  O <- length(genera) # occs
+  N <- length(unique(genera)) # genera
+  L <- length(unique(localities))
+  return((O-N)/((L*N)-N))
+}
+```
+
+## Paleobiology Database
+
+The fossil occurrence data analysed in this study was retrieved from the [Paleobiology Database](https://paleobiodb.org/#/) on November of 2024. Data pre-processing made use of functions from the `fossilbrush` and `CoordinateCleaner` R packages.
+
+The following script shows you how we processed the full Phanerozoic `Pbdb` dataset that was downloaded using the `Pbdb_download_new.R` script, which is available in our repository.
+
+However, since that requires you to download the data yourself, we have provided the files of `Pbdb` data used for each interval pair in the `Pbdb_data` folder and this section of the script can therefore be skipped. In the case of the end-Cretaceous, it is labelled `pbdb_kpg.csv` within that folder. So, you have the option to simply load in that file and skip this section if you so choose!
+
+```{r,message=FALSE}
+# Read occurrence dataset.
+ pbdb <-read.csv(file = '~/Documents/BioHom/pbdb.data.Nov2024.csv')
+
+#If you want to skip this section using the pre-processed file, use this instead and skip all other lines in this section:
+#  pbdb <-read.csv(file = '~/Documents/BioHom/pbdb_kpg.csv')
+
+# Adjust radiometric ages
+interval.ma    <- pbdb |> 
+  group_by(early_interval) |> 
+ summarise(min_ma = min(min_ma))
+names(interval.ma) <-c("early_interval", "interval.ma")
+pbdb       <- merge(pbdb, interval.ma, by=c("early_interval"))
+
+# Find first and last occurrences and merge back into data frame, using min_ma column
+fadlad <- pbdb |> 
+  group_by(accepted_name)  |> 
+  summarise(
+    fad = max(interval.ma),
+    lad = min(interval.ma)
+  )
+
+# Merge fad and lad information into data frame
+pbdb <- merge(pbdb, fadlad, by=c("accepted_name"))
+
+# Add extinction/survivor binary variable
+pbdb$ex <- 0
+pbdb$ex[pbdb$interval.ma==pbdb$lad] <- 1
+
+# Select variables.
+pbdb <- pbdb |> 
+  select(any_of(c("interval.ma","early_interval","interval.ma","fad","lad",
+                  "accepted_name","genus","ex","phylum","class",
+                  "order","family","paleolat","paleolng","formation","member",
+                  "occurrence_no","collection_no","collection_name",
+                  "reference_no")))
+
+# Keep two classes and select the age-pair you want.
+ pbdb <- pbdb |> 
+     filter(class %in% c("Gastropoda", "Bivalvia", "Trilobita", "Rhynchonellata", "Strophomenata", "Anthozoa") &
+    interval.ma %in% c("66", "61.6"))
+ 
+# Identify Invalid Coordinates.
+  cl <- cc_val(pbdb, value = "flagged", lat="paleolat", lon  ="paleolng") #flags incorrect coordinates
+  cl_rec <- pbdb[!cl,] #extract and check them
+  
+ pbdb <- pbdb |> 
+   cc_val(lat = "paleolat", lon="paleolng") #remove them
+ 
+# Use fossilbrush to clean taxonomic errors
+b_ranks <- c("phylum", "class", "order", "family", "accepted_name") #accepted_name is genus name
+
+# Define a list of suffixes to be used at each taxonomic level when scanning for synonyms
+b_suff = list(NULL, NULL, NULL, NULL, c("ina", "ella", "etta"))
+
+pbdb2 <- check_taxonomy(pbdb, suff_set = b_suff, ranks = b_ranks, verbose = FALSE,clean_name = TRUE, resolve_duplicates = TRUE, jump = 5)
+# resolves homonyms, and jump refers to which taxonomic rank is the highest we resolve to. jump = 5 will stop before phylum since phylum level usually has little error.
+
+# Extract PBDB data from obdb2 so we have the corrected taxa:
+pbdb <- pbdb2$data[1:nrow(pbdb),]
+
+pbdb_fulldata <- pbdb # keep a record of all pertinent information, just in case
+
+
+```
+
+## Visualization of Cells and Occurrences
+
+The globe is divided into a grid of equal-area icosahedral hexagonal cells using the `hexagrid()` function in `icosa`. In `hexagrid(deg = x)`, is roughly equivalent to longitudinal degrees, so that a degree of 1 is roughly equal to 111 km. This selects a tessellation vector, which translates to the amount of area you select for each cell. In our specified grid, each cell is roughly 629,000 km\^2 and results in a grid of 812 cells.
+
+```{r, message=FALSE}
+
+# Split by age
+  pbdb.2before <- pbdb |> filter(interval.ma==66)
+  pbdb.2after <- pbdb |> filter(interval.ma==61.6)
+
+# Find raw locations for each stage
+coords.before <- subset(pbdb.2before, select = c(paleolng, paleolat)) 
+coords.before <- coords.before |>  
+                          mutate_at(c('paleolng', 'paleolat'), as.numeric)
+coords.after<- subset(pbdb.2after, select = c(paleolng, paleolat)) 
+coords.after <- coords.after |>  
+                          mutate_at(c('paleolng', 'paleolat'), as.numeric)
+
+# Set up the grid
+hexa <- hexagrid(deg= 4.5, sf=TRUE) #each deg = ~111 km
+hexa
+
+# Find cell locations for each occurrence
+cells.before <-locate(hexa, coords.before) 
+# str(cells.before) #to see which cells have occ's
+cells.after <-locate(hexa, coords.after)
+#str(cells.after)
+
+# Next add cells df to coords df in order to match cells with their coordinates:
+coords.before$cell <- cells.before 
+names(coords.before) <- c("long", "lat", "cell")
+coords.after$cell <- cells.after 
+names(coords.after) <- c("long", "lat", "cell")
+
+tcells.before <- table(cells.before) #to get no. of occupied cells
+#str(tcells.cha) #get frequency of cell occ's
+tcells.after <- table(cells.after)
+#str(tcells.ind)
+
+data.2before <- cbind(pbdb.2before, coords.before) #assigns cell number for each occurrence
+data.2after <- cbind(pbdb.2after, coords.after)
+
+pbdb <- rbind(data.2before, data.2after)
+```
+
+**Grid Plots**
+
+Next, visualize all occurrences for each stage, using the package `rgplates` and `icosa` on R. Please note that this version requires that you have the `Gplates` software installed in your computer, as it is the most optimal version of `rgplates`.
+
+```{r, message=FALSE}
+
+# Call to Gplates offline (requires installed Gplates software)
+
+td <-tempdir() #temporary directory
+#td
+rgPath <- system.file(package="rgplates")
+#list.files(rgPath) #confirm that this is the correct path
+unzip(file.path(rgPath, "extdata/paleomap_v3.zip"), exdir=td)
+#list.files(file.path(td)) #confirm extraction has happened by looking at temporary directory
+pathToPolygons <- file.path(td, "PALEOMAP_PlatePolygons.gpml") #static plate polygons
+pathToRotations <- file.path(td, "PALEOMAP_PlateModel.rot")
+
+pm <- platemodel(
+  features = c("static_polygons" = pathToPolygons),
+  rotation = pathToRotations
+)
+
+# Plot it out:
+edge <-mapedge() #edge of the map
+plates.kpg<- reconstruct("static_polygons", age= 65, model =pm)
+plot(edge, col = "lightblue2")
+plot(plates.kpg$geometry, col = "gray60", border = NA, add = TRUE)
+plot(hexa,  border="white",add = TRUE)
+gridlabs(hexa, cex=0.5) #get labels for each cell, labeled as spiral from North pole of grid
+```
+
+**Before occurrences**
+
+Occurrences in the Before stage, with colors indicating the number of occurrences in occupied cells.
+
+```{r}
+# Before
+platesMoll <- sf::st_transform(plates.kpg, "ESRI:54009")
+#^transform plates to Mollweide projection to plot
+plot(hexa, tcells.before, 
+     crs ="ESRI:54009",
+     border = "lightgrey",
+     pal=c("#440154ff","darkorchid2","deepskyblue","royalblue", "goldenrod"),
+     breaks = c(0, 15, 100, 200, 400, 600),
+     reset=FALSE)
+plot(platesMoll$geometry, add = TRUE,border= NA, col = "#66666688")
+
+# Save this in landscape orientation, 10*6, title 'map-intervalpair' (for example: map-kpg)
+```
+
+**After occurrences**
+
+Occurrences in the After stage, with colors indicating the number of occurrences in occupied cells.
+
+```{r}
+# After
+plot(hexa, tcells.after, 
+     crs ="ESRI:54009",
+     border = "lightgrey",
+     pal=c("#440154ff","darkorchid2","deepskyblue","royalblue", "goldenrod"),
+     breaks = c(0, 15, 100, 200, 400, 600),
+     reset=FALSE)
+plot(platesMoll$geometry, add = TRUE,border= NA, col = "#66666688")
+
+# landscape, 10*6, map-after 
+
+```
+
+## Data pre-processing
+
+We investigate the data by dividing it by stage and taxonomic class. We determine the number of cells and occurrences for each stage.
+
+```{r, message=FALSE}
+
+#Colorblind friendly colors:
+cb <- c(
+  "Blue" = "#0072B2",
+  "Orange" = "#D95F02",
+  "Sky Blue" = "#56B4E9",
+  "Yellow" = "#F0E442",
+  "Green" = "#009E73",
+  "Red" = "#E41A1C",
+  "Purple" = "#984EA3",
+  "Brown" = "#A55E2D",
+  "Gray" = "#999999",
+  "Teal" = "#009A99",
+  "Dark Blue" = "#003F5C",
+  "Light Blue" = "#7A9B9A",
+  "Coral" = "#FF6F61",
+  "Lime Green" = "#A8D200",
+  "Dark Green" = "#4B8DA3",
+  "Gold" = "#FFBF00",
+  "Slate Gray" = "#6A6A6A",
+  "Pink" = "#D5006D",
+  "Olive" = "#7A7B2D",
+  "Mint Green" = "#B8E1B1"
+)
+
+# Data balance.
+pbdb |> 
+  group_by(class,early_interval) |> 
+  count() |> 
+  ggplot(mapping = aes(x = class, y = n, fill = class)) +
+  geom_bar(stat = "identity") +
+  labs(x = NULL, y = "Sample Size") +
+  scale_fill_manual(values =  c("#ea801c","#003F5C","#F47","#0d7d87"))+
+  scale_color_manual(values = c("#ea801c","#003F5C","#F47","#0d7d87")) +
+  facet_wrap(.~ early_interval, scales = "free") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8, face = "bold"),
+        axis.title = element_text(size = 8,face = "bold"),
+        axis.text = element_text(size = 8),
+        strip.text = element_text(face = "bold"),
+        legend.position = "none",
+        aspect.ratio = 1)
+
+
+# Set min occurrences
+min_occ <- 15
+
+# Maastrichian cells.
+before_pbdb <-
+  pbdb |> 
+  filter(early_interval == "Maastrichtian")
+
+before_pbdb <- 
+  before_pbdb |> 
+  # Cells.
+  mutate(cell = locate(x = hexa,y = before_pbdb |> select("paleolng", "paleolat")))
+
+# Count occurrences per cell and filter by minimum occurrence.
+before_pbdb <-
+  before_pbdb |> 
+  group_by(cell) |>
+  count() |> 
+  setNames(nm = c("cell","occs")) |> 
+  inner_join(before_pbdb,by = c("cell")) |>
+  filter(occs >= min_occ)
+
+# Cell centroids.
+before_centroid <- 
+  as.data.frame(centers(hexa))[names(table(before_pbdb$cell)),] |> 
+  rownames_to_column(var = "cell")
+
+# Add centroid to master dataframe: Longitude and Latitude.
+before_pbdb <- 
+  before_pbdb |> 
+  left_join(before_centroid, by = "cell")
+
+# after< cells
+after_pbdb <-
+  pbdb |> 
+  filter(early_interval == "Danian")
+
+after_pbdb <- 
+ after_pbdb |> 
+  # Cells.
+  mutate(cell = locate(x = hexa,y = after_pbdb |> select("paleolng", "paleolat")))
+
+# Count occurrences per cell and filter by minimum occurrence.
+after_pbdb <-
+  after_pbdb |> 
+  group_by(cell) |>
+  count() |> 
+  setNames(nm = c("cell","occs")) |> 
+  inner_join(after_pbdb,by = c("cell")) |>
+  filter(occs >= min_occ)
+
+# Cell centroids
+after_centroid <- 
+  as.data.frame(centers(hexa))[names(table(after_pbdb$cell)),] |> 
+  rownames_to_column(var = "cell")
+
+# Add centroid coordinates to master dataframe.
+after_pbdb <- 
+  after_pbdb |> 
+  left_join(after_centroid, by = "cell")
+
+# Combine the two datasets: before & after.
+# The pbdb dataset is has now been fully pre-processed.
+pbdb <- bind_rows(before_pbdb, after_pbdb)
+
+# Create unique identifier for each cell.
+pbdb <- 
+  data.frame(unique(pbdb$cell)) |> 
+  setNames(nm = "cell") |> 
+  mutate(cell_id = c(1:length(cell))) |> 
+  inner_join(pbdb, by = "cell")
+
+# Get number of cells for each age
+pbdb |> group_by(interval.ma) |> summarise(unique_cells = n_distinct(cell))
+
+# Plot number of occurrences per stage and cell.
+cell_text <- 
+  data.frame(
+  label = c("N = 69 cells", "N = 23 cells"),
+  early_interval = c("Maastrichtian", "Danian")
+)
+
+# Plot it
+pbdb |> 
+  group_by(early_interval,cell) |> 
+  count() |> 
+  ggplot(mapping = aes(x = cell, y = n)) + 
+  geom_col(col = "white", bg = "#53565A") +
+  coord_flip() +
+  geom_hline(yintercept = 15, color = "#B83A4B") +
+  labs(x = NULL, y = "Occurrences") +
+  geom_text(data = cell_text, mapping = aes(x = c(12,18), y = 100, label = label),
+            hjust   = -1, vjust = -0.1, size = 3) +
+  facet_wrap(.~ early_interval,scales = "free",nrow = 1) +
+  theme_bw() +
+  theme(aspect.ratio = 1.25,
+        axis.text  = element_text(size = 8),
+        axis.title = element_text(face = "bold"),
+        strip.text = element_text(face = "bold"))
+```
+
+For each stage we create individual dataframes based on the cell units and store these into separate lists.
+
+```{r}
+# Data splitting based on cell id and stage.
+before_split <-
+  pbdb |> 
+  filter(early_interval == "Maastrichtian") |>
+  group_split(cell_id) |> 
+  lapply(as.data.frame)
+
+after_split <-
+  pbdb |> 
+  filter(early_interval == "Danian") |>
+  group_split(cell_id) |> 
+  lapply(as.data.frame)
+```
+
+## Subsampling by cells and occurrence
+
+Here we perform subsampling without replacement on our stage-level datasets using 99 iterations. For the "before" age we randomly sample 20 occurrences per cell and repeated the process as stated above. Conversely, for the "after" age, we applied a two-step subsampling procedure by first subsampling down to 13 cells and then by occurrences. The results are subsampled datasets (cell-specific) saved as nested objects within a larger list. These are subsequently, merged into single master dataframes (i.e., the cells) to create one single list containing 99 dataframes.
+
+```{r}
+# after.
+set.seed(3)
+
+boot_after <- purrr::map(1:199, ~ {
+  after_split |> 
+  # Samples rows uniformly.
+ purrr::map(~ sample_n(.x, 15, replace = FALSE))
+  }
+)
+
+# before.
+set.seed(4)
+
+boot_before <- purrr::map(1:199, ~ {
+  before_split |> 
+  # Step 1. Cells.
+  sample(22, replace = FALSE) |> 
+  # Step 2. Rows (i.e., occurrences).
+  purrr::map(~ sample_n(.x, 15, replace = FALSE))
+  }
+)
+```
+
+As indicated in the previous section, we here combine cell-specific dataframes (N=13) into single joint dataframes (13\*20 = 260 rows). This is repeated for all 99 sub-sampled dataframes. Worthy of note, the cells in the after list, will inevitably vary between the subsampled datasets, whereas, in the case of the "before" age they are all identical. This is because our analysis seeks to assess the impact by cell heterogeneity across geologic stages.
+
+```{r}
+# Before.
+combined_boot_before <- 
+  list()
+
+for(i in seq_along(boot_before)) {
+  pBe <- purrr::map_dfr(boot_before[[i]], bind_rows)
+  combined_boot_before[[i]] <- pBe
+}
+
+# after.
+combined_boot_after <- 
+  list()
+
+for(i in seq_along(boot_after)) {
+  pAf <- purrr::map_dfr(boot_after[[i]], bind_rows)
+  combined_boot_after[[i]] <- pAf
+}
+```
+
+## Generic occurrence per cell
+
+For each subsampled dataset in both the After and Before lists we here count the number of occurrence of each genera by cell. This is done for all dataframes and are then combined into one master dataframe.
+
+```{r message=FALSE}
+# before.
+before_count_ls <- 
+  purrr::map(combined_boot_before, ~ .x |> group_by(cell,accepted_name) |> summarise(occs = n(), .groups = 'drop')) |> 
+  lapply(as.data.frame) |> 
+  bind_rows()
+
+# after.
+after_count_ls <- 
+  purrr::map(combined_boot_after, ~ .x |> group_by(cell,accepted_name) |> summarise(occs = n(), .groups = 'drop')) |> 
+  lapply(as.data.frame) |> 
+  bind_rows()
+```
+
+## Unique cell pairs
+
+```{r}
+# before & after.
+cells_distinct_before <- 
+  tibble(unique(before_count_ls$cell)) |> setNames(nm = "x") |> 
+  mutate(n_part = as.numeric(sub("F", "", x))) |> 
+  arrange(n_part) |> 
+  pull(x)
+
+cells_distinct_after <- 
+  tibble(unique(after_count_ls$cell)) |> setNames(nm = "x") |> 
+  mutate(n_part = as.numeric(sub("F", "", x))) |> 
+  arrange(n_part) |> 
+  pull(x)
+
+# Distinct cell pairs.
+cells_distinct_pair_before <-
+  expand.grid(cells_distinct_before,cells_distinct_before,stringsAsFactors = F) |> 
+  setNames(nm = c("x","y")) |> 
+  filter(x<y) |> 
+  as_tibble() # 78 unique cell pairs.
+
+cells_distinct_pair_after <-
+  expand.grid(cells_distinct_after,cells_distinct_after,stringsAsFactors = F) |>
+  setNames(nm = c("x","y")) |> 
+  filter(x<y) |> 
+  as_tibble() # 190 unique cell pairs.
+```
+
+## Jaccard indices
+
+**The Jaccard similiary equation** following Miller et al., 2009
+
+$$ J(Cell X, Cell Y) = \frac{|Cell X \cap Cell Y|}{|Cell X \cup Cell Y|} $$
+
+```{r, message=FALSE}
+# before.
+before_jaccard <- 
+  jaccard_similarity(combined_boot_before)
+
+# after.
+after_jaccard <- 
+  jaccard_similarity(combined_boot_after)
+```
+
+```{r, message=FALSE}
+# Average similarity for each cell-pair and stage.
+
+# before.
+ave_before_jaccard <- 
+  bind_rows(before_jaccard) |>
+  group_by(cell_x, cell_y) |> 
+  summarise(avg_jaccard = mean(jaccard_similarity)) |> 
+  rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+
+# after
+ave_after_jaccard <- 
+  bind_rows(after_jaccard) |>
+  group_by(cell_x, cell_y) |> 
+  summarise(avg_jaccard = mean(jaccard_similarity)) |> 
+  rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+```
+
+## Great circle distance
+
+```{r}
+
+colnames(pbdb)[23] <- "lat"
+colnames(pbdb)[22] <- "long" 
+
+#before
+before_res_matrix <- cells_distinct_pair_before |> 
+  # X-coordinates
+  left_join(pbdb |> select(cell,long,lat), by = c("x" = "cell"),relationship = "many-to-many") |> 
+  distinct(x,y,long,lat) |> 
+  rename("x_long" = "long","x_lat" = "lat") |> 
+  # Y-coordinates
+  left_join(pbdb |> select(cell,long,lat), by = c("y" = "cell"),relationship = "many-to-many") |> 
+  distinct(x,y,x_long,x_lat,long,lat) |> 
+  # Rename variables.
+  rename("y_long" = "long","y_lat" = "lat") |> 
+  # GCD.
+  mutate(gcd = gcd.slc(long1 = x_long,lat1 = x_lat,long2 = y_long,lat2 = y_lat)) |> 
+  as.data.frame()
+
+# after.
+after_res_matrix <- cells_distinct_pair_after |> 
+  # X-coordinates
+  left_join(pbdb |> select(cell,long,lat), by = c("x" = "cell"),relationship = "many-to-many") |> 
+  distinct(x,y,long,lat) |> 
+  rename("x_long" = "long","x_lat" = "lat") |> 
+  # Y-coordinates
+  left_join(pbdb |> select(cell,long,lat), by = c("y" = "cell"),relationship = "many-to-many") |> 
+  distinct(x,y,x_long,x_lat,long,lat) |> 
+  # Rename variables.
+  rename("y_long" = "long","y_lat" = "lat") |> 
+  # GCD.
+  mutate(gcd = gcd.slc(long1 = x_long,lat1 = x_lat,long2 = y_long,lat2 = y_lat)) |> 
+  as.data.frame()
+```
+
+## Czekanowski indices
+
+**Czekanowski equation** following Miller et al., 2009
+
+$$ Czekanowski = 2 * \frac{\sum \min(x_{1k}, x_{2k})}{\sum x_{1k} + \sum x_{2k}} $$ The occurrence of a given taxa between distinct cells are evaluated against each other.
+
+```{r}
+# before.
+before_combs <- gridComb(x = before_pbdb,cell = cell,accepted_name = accepted_name) # 13*221 = 2873 rows.
+
+# after.
+after_combs <- gridComb(x = after_pbdb,cell = cell,accepted_name = accepted_name) # 20*93 = 1860 rows. 190 unique cell pairs (check!)
+
+# Next count the occurrence of genera per unique cell. This will also include genera with no occurrence in any given cell (i.e. 0).
+# These are subsequently removed in the next step.
+
+countGen <- function(combinations, age_lists) {
+  purrr::map(seq_along(age_lists), function(i) {
+    name_counts <- 
+      combinations |> 
+      left_join(age_lists[[i]] |>  group_by(cell, accepted_name) |> count(), by = c("cell", "accepted_name")) |> 
+      # Replace NA with 0.
+      replace_na(list(n = 0))
+    return(name_counts)
+  })
+}
+
+# before.
+before_genCell <- countGen(combinations = before_combs, age_lists = combined_boot_before)
+# after.
+after_genCell <- countGen(combinations = after_combs, age_lists = combined_boot_after)
+
+# Create two identical count dataframes for each pair to join against.
+
+# before.
+before_count_lsX <- purrr::map(before_genCell, ~ .x |> rename("cell_x" = "cell", "count_cell_x" = "n"))
+before_count_lsY <- purrr::map(before_genCell, ~ .x |> rename("cell_y" = "cell", "count_cell_y" = "n"))
+# after.
+after_count_lsX <- purrr::map(after_genCell, ~ .x |> rename("cell_x" = "cell", "count_cell_x" = "n"))
+after_count_lsY <- purrr::map(after_genCell, ~ .x |> rename("cell_y" = "cell", "count_cell_y" = "n"))
+
+set.seed(5)
+
+# Merge counts for each cell pair.
+ mCount <- function(cell_pairs, X, Y) {
+  
+  purrr::map(1:99, function(i) {
+    # Rename the fields so that it matches.
+    oG <- 
+      cell_pairs |> rename("cell_x" = "x", "cell_y" = "y") |> 
+      # First join (x)
+      left_join(X[[i]], by = "cell_x", relationship = "many-to-many") |> 
+      # Second join (y) 
+      left_join(Y[[i]], by = c("cell_y", "accepted_name")) |> 
+      select("cell_x", "cell_y", "accepted_name", "count_cell_x", "count_cell_y")
+    
+    return(oG)
+  })
+}
+
+# before.
+before_joined <- mCount(cell_pairs = cells_distinct_pair_before,X = before_count_lsX, Y = before_count_lsY)
+
+# after.
+after_joined <- mCount(cell_pairs = cells_distinct_pair_after,X = after_count_lsX, Y = after_count_lsY)
+
+# We then split based on distinct cell pairs. This will creates a nested list with X splits (78 for Before and
+# 190 for the "after" age) each dataframe i.e. 99. We also remove any genera (i.e. accepted name) were 0 occurrences is recorded between cell pairs.
+# This step also add a new field (the minimum field) which is based on the lowest number occurrences of a particular taxa between two cells.
+
+czekanowski_splits <- function(joined_lists) {
+  
+  purrr::map(1:99, function(i) {
+  oP <- joined_lists[[i]] |>
+    # Remove
+    filter(!(count_cell_x == 0 & count_cell_y == 0)) |> 
+    # Compute the minimum value between cell x and cell y (use count variable)
+    mutate(minimum = pmin(count_cell_x, count_cell_y)) |> 
+    group_by(cell_x, cell_y) |>  
+    group_split()
+  
+  return(oP)
+  })
+}
+
+cz_before_prep <- czekanowski_splits(before_joined)
+cz_after_prep <- czekanowski_splits(after_joined)
+
+# Compute the czekanowski index.
+before_czekanowski <- vector(mode = "list")
+for(i in seq_along(cz_before_prep)) {
+  cz <- lapply(cz_before_prep[[i]], czekanowski_similarity)
+  before_czekanowski[[i]] <- cz
+}
+
+after_czekanowski <- vector(mode = "list")
+for(i in seq_along(cz_after_prep)) {
+  czAf <- lapply(cz_after_prep[[i]], czekanowski_similarity)
+  after_czekanowski[[i]] <- czAf
+}
+
+# Cell pairs.
+pairs_before <- do.call("rbind",lapply(cz_before_prep[[1]], function(x) x[1:2][1,]))
+
+# Find all pairs in the After
+pairs_after <- vector(mode = "list")
+
+for(i in 1:99) {
+  append_cells <- do.call("rbind",lapply(cz_after_prep[[i]], function(x) x[1:2][1,]))
+  pairs_after[[i]] <- append_cells
+}
+
+# Reformat 
+before_cz_results <- 
+  purrr::map(before_czekanowski, ~as.data.frame(unlist(.x)) |> 
+               rename("cz" = 1) |>
+               cbind(pairs_before) |> 
+               relocate(.after = "cell_y","cz") |> 
+               rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+             )
+
+after_cz_results <- 
+  purrr::map(after_czekanowski, ~as.data.frame(unlist(.x)) |> 
+               rename("cz" = 1))
+
+# Now bind the cell pairs to the After datasets.
+after_cz_results <- mapply(function(x, y) cbind(y, x), after_cz_results, pairs_after, SIMPLIFY = FALSE)
+
+# Compute the average czekanowski per cell pair
+before_czekanowski_dataframe <- bind_rows(before_cz_results) |> rename("cell_x" = "x.cell", "cell_y" = "y.cell")
+after_czekanowski_dataframe <- bind_rows(after_cz_results)
+```
+
+## Results
+
+```{r}
+# before
+before_res_matrix <- 
+  before_res_matrix |> 
+  rename("x.cell" = "x","y.cell" = "y") |> 
+  left_join(ave_before_jaccard,by = c("x.cell","y.cell"))
+
+# after
+after_res_matrix <- 
+  after_res_matrix |> 
+  rename("x.cell" = "x","y.cell" = "y") |> 
+  left_join(ave_after_jaccard,by = c("x.cell","y.cell"))
+
+# Bin by distance between cells (GCD in km's)
+before_res_matrix$cutdist <- 
+  cut(before_res_matrix$gcd,
+      breaks = c(0, 2000, 4000, 6000, 8000, 10000, 12000, 
+                 14000, 16000, 18000, 20000), 
+      labels = c("0", "2000", "4000", "6000","8000", 
+                 "10000", "12000","14000", "16000", "18000"),
+                       include.lowest = TRUE)
+
+after_res_matrix$cutdist <- 
+  cut(after_res_matrix$gcd,
+      breaks = c(0, 2000, 4000, 6000, 8000, 10000, 12000, 
+                 14000, 16000, 18000, 20000), 
+      labels = c("0", "2000", "4000", "6000","8000", 
+                 "10000", "12000","14000", "16000", "18000"),
+                       include.lowest = TRUE)
+
+# Average and sd for Before.
+sumRes_01 <-
+  before_res_matrix |> 
+  group_by(cutdist) |> 
+  summarise(
+    # Jaccard
+    avg =  mean(avg_jaccard, na.rm = TRUE),
+    sdev = sd(avg_jaccard, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+    # Quantiles
+    first = quantile(avg_jaccard,probs=0.05, na.rm= TRUE),
+    second = quantile(avg_jaccard,probs=0.95, na.rm = TRUE)
+  ) |> 
+  mutate(label = 'Before',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame() |> suppressWarnings() # This was added to ignore the last observation.
+
+# Average and sd for the After.
+sumRes_02 <- 
+  after_res_matrix |> 
+  group_by(cutdist) |> 
+  summarise(
+    # Jaccard
+    avg =  mean(avg_jaccard, na.rm = TRUE),
+    sdev = sd(avg_jaccard, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+     # Quantiles
+    first = quantile(avg_jaccard,probs=0.05),
+    second = quantile(avg_jaccard,probs=0.95)
+  ) |> 
+  mutate(label = 'After',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame() |> suppressWarnings() # This was added to ignore the last observation.
+
+# Combine the two.
+sumRes_03 <- bind_rows(sumRes_01,sumRes_02)
+
+
+# Plot.
+Plot1<-
+sumRes_03 |> 
+   ggplot(aes(x = cutdist, y = avg, group = label, colour = label, fill = label)) +
+  geom_errorbar(aes(ymin = second, ymax = first), width = 0.05, linewidth = 1, position = position_dodge(width = 0.3)) + 
+  geom_line(linewidth = 1.2, position = position_dodge(width = 0.3)) +
+  ylim(0, 0.7) +
+  scale_size_continuous(breaks = c(5, 10, 15, 20, 25, 30)) +
+  geom_point(aes(size = n), shape = 23, fill = "white", stroke = 2, position = position_dodge(width = 0.3)) +
+  scale_fill_manual(values =  c("black", "hotpink")) + 
+  scale_color_manual(values = c("black","hotpink")) + 
+  labs(x = "Great Circle Distance (km)", 
+       y = "Similarity Value",
+       title = "Jaccard",
+       subtitle = "Subsampling by cells and occurrences", colour = "Stages", size = "Cell-pair comparison") +
+  theme_classic() +
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"),
+        aspect.ratio = 1)
+Plot1 
+ggsave("jaccard-kpg.pdf", plot = Plot1, width = 10, height =6 , units = "in", dpi = 300)
+# Save in landscape view, 6*8, jaccard-intervalname
+```
+
+<!-- Czekanowski -->
+
+```{r, message=FALSE}
+# before
+before_res_matrix <-
+  before_res_matrix |>
+  left_join(
+    before_czekanowski_dataframe |> rename("x.cell" = "cell_x", "y.cell" = "cell_y") |> 
+      group_by(x.cell,y.cell) |>
+      summarise(avg_cz =  mean(cz, na.rm = TRUE)), by = c("x.cell","y.cell")) |>
+  relocate(.after = "avg_jaccard","avg_cz")
+
+# after
+after_res_matrix <-
+  after_res_matrix |>
+  left_join(
+    after_czekanowski_dataframe |> rename("x.cell" = "cell_x", "y.cell" = "cell_y") |> 
+      group_by(x.cell,y.cell) |>
+      summarise(avg_cz =  mean(cz, na.rm = TRUE)), by = c("x.cell","y.cell")) |>
+  relocate(.after = "avg_jaccard","avg_cz")
+
+# Average and standard deviation for Before.
+sumRes_04 <-
+  before_res_matrix |>
+  group_by(cutdist) |>
+  summarise(
+    avg =  mean(avg_cz, na.rm = TRUE),
+    sdev = sd(avg_cz, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+        # Quantiles
+    first = quantile(avg_cz,probs=0.05, na.rm=TRUE),
+    second = quantile(avg_cz,probs=0.95, na.rm=TRUE)
+  ) |>
+  mutate(label = 'Before',label = as.factor(label)) |>
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |>
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |>
+  as.data.frame() |> suppressWarnings() # This was added to ignore the last observation.
+
+sumRes_05 <-
+  after_res_matrix |>
+  group_by(cutdist) |>
+  summarise(
+    avg =  mean(avg_cz, na.rm = TRUE),
+    sdev = sd(avg_cz, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+    # Quantiles
+    first = quantile(avg_cz,probs=0.05, na.rm=TRUE),
+    second = quantile(avg_cz,probs=0.95, na.rm=TRUE)
+  ) |>
+  mutate(label = 'After',label = as.factor(label)) |>
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |>
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |>
+  as.data.frame() |> suppressWarnings()
+
+sumRes_06 <- bind_rows(sumRes_04,sumRes_05)
+
+# Plot.
+Plot2 <-
+sumRes_06 |> 
+  ggplot(aes(x = cutdist, y = avg, group = label, colour = label, fill = label)) +
+  geom_errorbar(aes(ymin = second, ymax = first), width = 0.05, linewidth = 1, position = position_dodge(width = 0.3)) + 
+  geom_line(linewidth = 1.2, position = position_dodge(width = 0.3)) +
+  ylim(0, 0.7) +
+  scale_size_continuous(breaks = c(5, 10, 15, 20, 25, 30)) +
+  geom_point(aes(size = n), shape = 21, fill = "white", stroke = 2, position = position_dodge(width = 0.3)) +
+  scale_fill_manual(values = c("black", "hotpink")) + 
+  scale_color_manual(values = c("black", "hotpink")) + 
+  labs(x = "Great Circle Distance (km)", 
+       y = "Similarity Value", 
+       title = "Czekanowski", 
+       subtitle = "Subsampling by cells and occurrences", colour = "Stages", size = "Cell-pair comparison") +
+  theme_classic() +
+  theme(plot.title = element_text(face = "bold"), 
+        axis.title = element_text(face = "bold"), 
+        legend.title = element_text(face = "bold"), 
+        aspect.ratio = 1)
+Plot2
+ggsave("czek-kpg.pdf", plot = Plot2, width = 10, height =6 , units = "in", dpi = 300)
+# save in landscape view, 6*8, czek-intervalname
+```
+
+## Prepare for fig. 3 error band
+
+Here, we want to get the Jaccard calculations by distance for each list in the list of 200 for each age, instead of the overall average Jaccard value of all 200 lists for each age calculated in *Results.*
+
+```{r, message=FALSE, warning=FALSE}
+#rename columns to match 
+before_jaccard2 <- lapply(before_jaccard, function(df){
+  df |> rename(x.cell=cell_x, y.cell=cell_y)})
+
+# Select just the columns to add (excluding x and y) from before_res_matrix
+additional_cols <- setdiff(names(before_res_matrix), c("x", "y"))
+
+# Loop over the list and left_join each data frame with the additional info
+before_jaccard3 <- lapply(before_jaccard2, function(df) {
+  df |>  
+    left_join(before_res_matrix, by = c("x.cell", "y.cell")) 
+  })
+
+# Calculate the average Jaccard per distance bin in each element in the list:
+jaccard_listave <- function(df) {
+  df |> 
+    group_by(cutdist) |> 
+    summarise(
+      avg = mean(jaccard_similarity, na.rm = TRUE),
+      sdev = sd(jaccard_similarity, na.rm = TRUE),
+      n = n(),
+      se = sdev / sqrt(n),
+    ) |> 
+    mutate(
+      label = factor("Maastrichtian"),
+      cutdist = factor(cutdist, levels = c("0","2000","4000","6000","8000",
+                                "10000","12000","14000","16000","18000","20000")),
+      ci = se * qt(.95, n - 1)
+    ) |> 
+    as.data.frame()
+}
+
+# Create the list based on the above function
+jaccard_200 <- lapply(before_jaccard3, jaccard_listave)
+
+# List to hold results
+jaccard_differences <- vector("list", length = length(jaccard_200) / 2)
+
+
+```
+
+Now we want to compare the values in this age to itself, so we will find the difference of each Jaccard value in each element of the list of 200. So we get: avg in 2nd list minus the 1st; 4th in the list minus the 3rd, and etc.
+
+```{r, message=FALSE, warning=FALSE}
+
+# Loop over 1 to 100 (assuming 200 elements in jaccard_200)
+n <- length(jaccard_200)
+
+# Ensure we have an even number of elements to form complete pairs
+n_pairs <- floor(n / 2)
+
+jaccard_differences <- vector("list", length = n_pairs)
+
+for (i in seq_len(n_pairs)) {
+  idx1 <- 2 * i - 1
+  idx2 <- 2 * i
+  
+  df1 <- jaccard_200[[idx1]]
+  df2 <- jaccard_200[[idx2]]
+  
+# Merge and calculate difference
+  df_merged <- merge(df2, df1, by = "cutdist", suffixes = c("_even", "_odd"))
+  df_merged$avg_diff <- df_merged$avg_even - df_merged$avg_odd
+  
+  jaccard_differences[[i]] <- df_merged[, c("cutdist", "avg_diff")]
+}
+
+# Combine all into one data frame with an ID
+combined_diffs <- bind_rows(jaccard_differences, .id = "comparison_id")
+
+# Now group by cutdist and compute average of avg_diff
+avg_diff_summary <- combined_diffs |> 
+  group_by(cutdist) |> 
+  summarise(
+    mean_diff = mean(avg_diff, na.rm = TRUE),
+    max = max(avg_diff, na.rm=TRUE),
+    min = min(avg_diff, na.rm=TRUE)
+  ) |> 
+  ungroup()
+
+
+```
+
+The rest of this code is the same as above, but for the next interval:
+
+```{r, message=FALSE, warning=FALSE}
+#rename columns to match 
+after_jaccard2 <- lapply(after_jaccard, function(df){
+  df |> rename(x.cell=cell_x, y.cell=cell_y)})
+
+# Select just the columns to add (excluding x and y) from before_res_matrix
+additional_cols_aft <- setdiff(names(after_res_matrix), c("x", "y"))
+
+# Loop over the list and left_join each data frame with the additional info
+after_jaccard3 <- lapply(after_jaccard2, function(df) {
+  df |>  
+    left_join(after_res_matrix, by = c("x.cell", "y.cell")) 
+  })
+
+
+# Create the list based on the above function
+jaccard_200_after <- lapply(after_jaccard3, jaccard_listave)
+
+# List to hold results
+jaccard_differences_after <- vector("list", length = length(jaccard_200) / 2)
+
+# Loop over 1 to 100 (assuming 200 elements in jaccard_200)
+n <- length(jaccard_200_after)
+
+jaccard_differences_after <- vector("list", length = n_pairs)
+
+for (i in seq_len(n_pairs)) {
+  idx1 <- 2 * i - 1
+  idx2 <- 2 * i
+  
+  df1_aft <- jaccard_200_after[[idx1]]
+  df2_aft <- jaccard_200_after[[idx2]]
+  
+# Merge and calculate difference
+  df_merged_after <- merge(df2_aft, df1_aft, by = "cutdist", suffixes = c("_even", "_odd"))
+  df_merged_after$avg_diff <- df_merged_after$avg_even - df_merged_after$avg_odd
+  
+  jaccard_differences_after[[i]] <- df_merged_after[, c("cutdist", "avg_diff")]
+}
+
+# Combine all into one data frame with an ID
+combined_diffs_aft <- bind_rows(jaccard_differences_after, .id = "comparison_id")
+
+# Now group by cutdist and compute average of avg_diff
+avg_diff_aft <- combined_diffs_aft |> 
+  group_by(cutdist) |> 
+  summarise(
+    mean_diff = mean(avg_diff, na.rm = TRUE),
+    max = max(avg_diff, na.rm=TRUE),
+    min = min(avg_diff, na.rm=TRUE)
+  ) |> 
+  ungroup()
+
+
+write.csv(avg_diff_summary, file="~/Documents/BioHom/avg_diff/avg_diff_Maa.csv")
+write.csv(avg_diff_aft, file="~/Documents/BioHom/avg_diff/avg_diff_Dan.csv")
+
+```
+
+## Sensitivity analysis
+
+Similarity measurements by survival status.
+
+```{r}
+# Retain occurrences with or greater than 15.
+pbdb_sensitivity <- 
+  pbdb |> 
+  filter(occs >= 15) # 3578 observations.
+
+# Split survival datasets by unique cell id.
+
+sAft <- pbdb_sensitivity |> 
+  filter(early_interval == "Danian" & ex==0 & fad >=66) |>
+  group_split(cell_id) |> lapply(as.data.frame)
+
+sV <- pbdb_sensitivity |>
+  filter(early_interval == "Maastrichtian" & ex==1) |>
+  group_split(cell_id) |> lapply(as.data.frame)
+
+# Before survivors.
+sBef <- pbdb_sensitivity |> 
+  filter(early_interval  == "Maastrichtian" & ex==0) |>
+  group_split(cell_id) |> lapply(as.data.frame)
+
+# Subsampling.
+subsampling_fun <-
+  function(x, n_boot = 199, sample_size = 12, seed = 5) {
+  set.seed(seed)
+  # Samples.
+  boot_samples <- purrr::map(1:n_boot, ~ sample(x, sample_size, replace = FALSE))
+  # Combine cells into single dataframes.
+  comb_samples <- purrr::map(boot_samples, ~ map_dfr(.x, bind_rows))
+  
+  return(comb_samples)
+}
+
+
+# Subsampled data.
+sBef_boot <- subsampling_fun(sBef)
+sV_boot <- subsampling_fun(sV)
+sAft_boot <- subsampling_fun(sAft)
+```
+
+#### Jaccard index calculation
+
+```{r}
+# After survivors.
+after_survivors_jaccard <- jaccard_similarity(sAft_boot)
+# Before victims.
+before_victims_jaccard <- jaccard_similarity(sV_boot)
+# Before survivors.
+before_survivors_jaccard <- jaccard_similarity(sBef_boot)
+```
+
+**Averages**
+
+```{r, message=FALSE}
+# Mean jaccard for the After survivors.
+aAftsJ <- 
+  bind_rows(after_survivors_jaccard) |>
+  group_by(cell_x, cell_y) |> 
+  summarise(avg_jaccard = mean(jaccard_similarity)) |> 
+  rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+
+# Mean jaccard for the Before victims.
+avJ <- 
+  bind_rows(before_victims_jaccard) |>
+  group_by(cell_x, cell_y) |> 
+  summarise(avg_jaccard = mean(jaccard_similarity)) |> 
+  rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+
+# before survivors.
+aBefsJ <- 
+  bind_rows(before_survivors_jaccard) |>
+  group_by(cell_x, cell_y) |> 
+  summarise(avg_jaccard = mean(jaccard_similarity)) |> 
+  rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+```
+
+**Visualize results**
+
+```{r, message=FALSE, warning=FALSE}
+# After results: survivors.
+mRes_01 <- after_res_matrix[,c(1:7,10)] |> left_join(aAftsJ,by = c("x.cell","y.cell"))
+# Before results: survivors & victims.
+mRes_02 <- before_res_matrix[,c(1:7,10)] |> left_join(avJ,by = c("x.cell","y.cell"))
+mRes_03 <- before_res_matrix[,c(1:7,10)] |> left_join(aBefsJ,by = c("x.cell","y.cell"))
+
+# Summary statistics for each survival category.
+
+# After survivors.
+sumRes_07 <-
+  mRes_01 |> 
+  group_by(cutdist) |> 
+  summarise(
+    # Jaccard
+    avg =  mean(avg_jaccard, na.rm = TRUE),
+    sdev = sd(avg_jaccard, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+       # Quantiles
+    first = quantile(avg_jaccard,probs=0.05,na.rm=TRUE),
+    second = quantile(avg_jaccard,probs=0.95, na.rm=TRUE)
+  ) |> 
+  mutate(label = 'After survivors',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame()
+
+# before victims.
+sumRes_08 <-
+  mRes_02 |> 
+  group_by(cutdist) |> 
+  summarise(
+    # Jaccard
+    avg =  mean(avg_jaccard, na.rm = TRUE),
+    sdev = sd(avg_jaccard, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+    # Quantiles
+    first = quantile(avg_jaccard,probs=0.05, na.rm=TRUE),
+    second = quantile(avg_jaccard,probs=0.95, na.rm=TRUE)
+  ) |> 
+  mutate(label = 'Before victims',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame() |> suppressWarnings()
+
+# before survivors.
+sumRes_09 <-
+  mRes_03 |> 
+  group_by(cutdist) |> 
+  summarise(
+    # Jaccard
+    avg =  mean(avg_jaccard, na.rm = TRUE),
+    sdev = sd(avg_jaccard, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+       # Quantiles
+    first = quantile(avg_jaccard,probs=0.05, na.rm=TRUE),
+    second = quantile(avg_jaccard,probs=0.95, na.rm=TRUE)
+  ) |> 
+  mutate(label = 'Before survivors',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame() |> suppressWarnings()
+
+# Combine all results.
+sumRes_10 <- bind_rows(sumRes_07,sumRes_08,sumRes_09)
+
+# Plot.
+Plot3 <-
+sumRes_10 |> 
+   ggplot(aes(x = cutdist, y = avg, group = label, colour = label, fill = label)) +
+  geom_errorbar(aes(ymin = second, ymax = first), width = 0.05, linewidth = 1, position = position_dodge(width = 0.3)) + 
+  geom_line(linewidth = 1.2, position = position_dodge(width = 0.3)) +
+  ylim(0, 0.7) +
+  scale_size_continuous(breaks = c(5, 10, 15, 20, 25, 30)) +
+  geom_point(aes(size = n), shape = 21, fill = "white", stroke = 2, position = position_dodge(width = 0.3)) +
+  scale_fill_manual(values =  c("hotpink","gray50", "black")) + 
+  scale_color_manual(values = c("hotpink","gray50", "black")) + 
+  labs(x = "Great Circle Distance (km)", 
+       y = "Similarity Value",
+       title = "Jaccard by survival status",
+       subtitle = "Subsampling by cells and occurrences", colour = "Stages", size = "Cell-pair comparison") +
+  theme_classic() +
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"),
+        aspect.ratio = 1)
+Plot3
+ggsave("jaccard_surv_kpg.pdf", plot = Plot3, width = 10, height =6 , units = "in", dpi = 300)
+```
+
+#### Czekanowski index calculation
+
+**After survivors**
+
+```{r}
+# Data table 
+prep_Afts <- map(sAft_boot, ~ czekanowski_data_prep(.x, cell = "cell", accepted_name = "accepted_name"))
+# Add minimum field to each data sub-list.
+prep_Afts <- map(prep_Afts, ~ map(.x, ~ mutate(.x, minimum = pmin(count_cell_x, count_cell_y))))
+
+# Compute czekanowski
+cz_Afts <- vector(mode = "list")
+for(i in seq_along(prep_Afts)) {
+  cZ <- lapply(prep_Afts[[i]],czekanowski_similarity)
+  cz_Afts[[i]] <- cZ
+}
+
+# Find all pairs.
+sp_01 <- vector(mode = "list")
+for(i in 1:199) {
+  pA <- do.call("rbind",lapply(prep_Afts[[i]], function(x) x[1:2][1,]))
+  sp_01[[i]] <- pA
+}
+
+# Convert to dataframe and unlist.
+flat_Afts <- purrr::map(cz_Afts, ~as.data.frame(unlist(.x)) |> rename("cz" = 1))
+# Append correctly.
+append_flat_afts <- mapply(function(x, y) cbind(y, x), flat_Afts, sp_01, SIMPLIFY = FALSE)
+
+# Compute the average czekanowski per cell-pair.
+res_Afts <- bind_rows(append_flat_afts) |> rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+```
+
+**Maastrichtian victims**
+
+```{r, warning=FALSE}
+# Data table 
+prep_v <- map(sV_boot, ~ czekanowski_data_prep(.x, cell = "cell", accepted_name = "accepted_name"))
+# Add minimum field to each data sub-list.
+prep_v <- map(prep_v, ~ map(.x, ~ mutate(.x, minimum = pmin(count_cell_x, count_cell_y))))
+
+# Compute czekanowski
+cz_v <- vector(mode = "list")
+for(i in seq_along(prep_v)) {
+  cZ <- lapply(prep_v[[i]],czekanowski_similarity)
+  cz_v[[i]] <- cZ
+}
+
+# Find all pairs.
+sp_02 <- vector(mode = "list")
+for(i in 1:99) {
+  pQ <- do.call("rbind",lapply(prep_v[[i]], function(x) x[1:2][1,]))
+  sp_02[[i]] <- pQ
+}
+
+# Convert to dataframe and unlist.
+flat_v <- purrr::map(cz_v, ~as.data.frame(unlist(.x)) |> rename("cz" = 1))
+# Append correctly.
+append_flat_v <- mapply(function(x, y) cbind(y, x), flat_v, sp_02, SIMPLIFY = FALSE)
+
+# Compute the average czekanowski per cell-pair.
+res_v <- bind_rows(append_flat_v) |> rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+```
+
+**Maastrichtian survivors**
+
+```{r, warning=FALSE}
+# Data table 
+prep_Befs <- map(sBef_boot, ~ czekanowski_data_prep(.x, cell = "cell", accepted_name = "accepted_name"))
+# Add minimum field to each data sub-list.
+prep_Befs <- map(prep_Befs, ~ map(.x, ~ mutate(.x, minimum = pmin(count_cell_x, count_cell_y))))
+
+# Compute czekanowski
+cz_Befs <- vector(mode = "list")
+for(i in seq_along(prep_Befs)) {
+  cM <- lapply(prep_Befs[[i]],czekanowski_similarity)
+  cz_Befs[[i]] <- cM
+}
+
+# Find all pairs.
+sp_03 <- vector(mode = "list")
+for(i in 1:99) {
+  pO <- do.call("rbind",lapply(prep_Befs[[i]], function(x) x[1:2][1,]))
+  sp_03[[i]] <- pO
+}
+
+# Convert to dataframe and unlist.
+flat_Befs <- purrr::map(cz_Befs, ~as.data.frame(unlist(.x)) |> rename("cz" = 1))
+# Append correctly.
+append_flat_Befs <- mapply(function(x, y) cbind(y, x), flat_Befs, sp_03, SIMPLIFY = FALSE)
+
+# Compute the average czekanowski per cell-pair.
+res_Befs <- bind_rows(append_flat_Befs) |> rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+```
+
+```{r, message=FALSE}
+# Averages.
+ave_s1 <- res_Afts |> 
+  group_by(x.cell,y.cell) |>
+  summarise(avg_cz =  mean(cz, na.rm = TRUE))
+
+ave_s2 <- res_v |> 
+  group_by(x.cell,y.cell) |>
+  summarise(avg_cz =  mean(cz, na.rm = TRUE))
+
+ave_s3 <- res_Befs |> 
+  group_by(x.cell,y.cell) |>
+  summarise(avg_cz =  mean(cz, na.rm = TRUE))
+```
+
+**Visualize results**
+
+```{r, warning=FALSE}
+# Reverse cell pairs first.
+ave_s1_reversed <- ave_s1|> rename("x.cell" = "y.cell", "y.cell" = "x.cell")
+ave_s2_reversed <- ave_s2|> rename("x.cell" = "y.cell", "y.cell" = "x.cell")
+ave_s3_reversed <- ave_s3|> rename("x.cell" = "y.cell", "y.cell" = "x.cell")
+
+# After results: survivors.
+qRes_01 <- after_res_matrix[,c(1:7,10)] |>
+  inner_join(ave_s1_reversed, by = c("x.cell","y.cell"))
+# Before results: survivors & victims.
+qRes_02 <- ave_s2_reversed |> 
+  left_join(before_res_matrix[,c(1:7,10)],by = c("x.cell","y.cell"))
+
+qRes_03 <- ave_s3_reversed |> 
+  left_join(before_res_matrix[,c(1:7,10)],by = c("x.cell","y.cell"))
+
+# Summary statistics for each survival category.
+
+# Aftwe survivors.
+sumRes_11 <-
+  qRes_01 |> 
+  group_by(cutdist) |> 
+  summarise(
+    avg =  mean(avg_cz, na.rm = TRUE),
+    sdev = sd(avg_cz, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+    # quantiles
+    first = quantile(avg_cz,probs=0.05),
+    second = quantile(avg_cz,probs=0.95)
+  ) |> 
+  mutate(label = 'After survivors',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame()
+
+# Before victims.
+sumRes_12 <-
+  qRes_02 |> 
+  group_by(cutdist) |> 
+  summarise(
+    avg =  mean(avg_cz, na.rm = TRUE),
+    sdev = sd(avg_cz, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+       # Quantiles
+    first = quantile(avg_cz,probs=0.05),
+    second = quantile(avg_cz,probs=0.95)
+  ) |> 
+  mutate(label = 'before victims',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame() |> suppressWarnings()
+
+# before survivors.
+sumRes_13 <-
+  qRes_03 |> 
+  group_by(cutdist) |> 
+  summarise(
+    avg =  mean(avg_cz, na.rm = TRUE),
+    sdev = sd(avg_cz, na.rm = TRUE),
+    n = n(),
+    se = sdev/sqrt(n),
+       # Quantiles
+    first = quantile(avg_cz,probs=0.05),
+    second = quantile(avg_cz,probs=0.95)
+  ) |> 
+  mutate(label = 'before survivors',label = as.factor(label)) |> 
+  mutate(cutdist = cutdist,
+         cutdist = factor(cutdist,levels = c("0","2000","4000","6000","8000","10000","12000","14000","16000","18000","20000"))) |> 
+  mutate(ci = se * qt(.95, n - 1), ci = as.numeric(ci)) |> 
+  as.data.frame() |> suppressWarnings()
+
+# Combine all results.
+sumRes_14 <- bind_rows(sumRes_11,sumRes_12,sumRes_13)
+
+# Plot.
+Plot4 <-
+sumRes_14 |> 
+ ggplot(aes(x = cutdist, y = avg, group = label, colour = label, fill = label)) +
+  geom_errorbar(aes(ymin = second, ymax = first), width = 0.05, linewidth = 1, position = position_dodge(width = 0.3)) + 
+  geom_line(linewidth = 1.2, position = position_dodge(width = 0.3)) +
+  ylim(0, 0.7) +
+  scale_size_continuous(breaks = c(5, 10, 15, 20, 25, 30)) +
+  geom_point(aes(size = n), shape = 21, fill = "white", stroke = 2, position = position_dodge(width = 0.3)) +
+  scale_fill_manual(values =  c("hotpink","gray50", "black")) + 
+  scale_color_manual(values = c("hotpink","gray50", "black")) + 
+  labs(x = "Great Circle Distance (km)", 
+       y = "Similarity Value",
+       title = "Czekanowski by survival status",
+       subtitle = "Subsampling by cells and occurrences", colour = "Stages", size = "Cell-pair comparison") +
+  theme_classic() +
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"),
+        aspect.ratio = 1)
+Plot4
+ggsave("czek_surv_kpg.pdf", plot = Plot4, width = 10, height =6 , units = "in", dpi = 300)
+
+```
+
+## Extra
+
+Count occurrences per genus in the After to determine whether they match the disaster taxa in literature (Claraia, Eumorphotis, etc).
+
+```{r extra}
+
+# Find the top 5 genera based on number of occurrences
+
+genus_counts <- pbdb.2after |> group_by(accepted_name) |> summarise(count = n(), .groups = 'drop') |> top_n(5, wt = count) |> arrange(desc(count))
+
+# Convert accepted_name to a factor with levels in descending order of count
+
+genus_counts$accepted_name <- factor(genus_counts$accepted_name, levels = genus_counts$accepted_name[order(genus_counts$count, decreasing = TRUE)])
+
+# Visualize it with switched axes
+
+ggplot(genus_counts, aes(x = count, y = accepted_name)) + theme_classic() + geom_bar(stat = "identity", fill = "dodgerblue3") + labs(x = "Number of Occurrences", y = "Genus Name")+ coord_flip() # Optional: this can be omitted if you want the horizontal bars
+```
+
+### Extra: Wastebin taxa removed
+
+Locate and remove all wastebin taxa, following the methods of *Plotnick and Wagner (2005)*. First, using the full database, locate all wastebin taxa throughout the "before" and "after" intervals by finding the 5 most frequent genus occurrences.
+
+```{r wastebin}
+
+ pbdb <-read.csv(file = '~/Documents/BioHom/pbdb.data.Nov2024.csv')
+
+# Adjust radiometric ages
+interval.ma    <- pbdb |> 
+  group_by(early_interval) |> 
+ summarise(min_ma = min(min_ma))
+names(interval.ma) <-c("early_interval", "interval.ma")
+pbdb       <- merge(pbdb, interval.ma, by=c("early_interval"))
+
+# Find first and last occurrences and merge back into data frame, using min_ma column
+fadlad <- pbdb |> 
+  group_by(accepted_name)  |> 
+  summarise(
+    fad = max(interval.ma),
+    lad = min(interval.ma)
+  )
+
+# Merge fad and lad information into data frame
+pbdb <- merge(pbdb, fadlad, by=c("accepted_name"))
+
+# Add extinction/survivor binary variable
+pbdb$ex <- 0
+pbdb$ex[pbdb$interval.ma==pbdb$lad] <- 1
+
+# Select variables.
+pbdb <- pbdb |> 
+  select(any_of(c("interval.ma","early_interval","interval.ma","fad","lad",
+                  "accepted_name","genus","ex","phylum","class",
+                  "order","family","paleolat","paleolng","formation","member",
+                  "occurrence_no","collection_no","collection_name",
+                  "reference_no")))
+
+# Keep the classes we want.
+ pbdb <- pbdb |> 
+     filter(class %in% c("Gastropoda", "Bivalvia", "Trilobita", "Rhynchonellata", "Strophemenata", "Anthozoa")) 
+ 
+# Get the frequency of each genus, then keep top 20 of them. these are our wastebasket genera
+ 
+pbdb_occs <- pbdb |> 
+  group_by(accepted_name) |> 
+  summarise(frequency = n()) |> 
+  arrange(desc(frequency)) |> 
+   slice_head(n = 20) |>  # keep only the top 20 rows
+  arrange(accepted_name) # order alphabetically
+        
+
+# Next, continue with the normal process of getting Jaccard similarity.
+
+# Here is where we remove the wastebin taxa:            
+pbdb <- pbdb |>    
+  filter(interval.ma %in% c("66", "61.6") &
+       (!accepted_name %in% pbdb_occs$accepted_name)) # particularly, this line
+ 
+# Identify Invalid Coordinates.
+  cl <- cc_val(pbdb, value = "flagged", lat="paleolat", lon  ="paleolng") #flags incorrect coordinates
+  cl_rec <- pbdb[!cl,] #extract and check them
+  
+ pbdb <- pbdb |> 
+   cc_val(lat = "paleolat", lon="paleolng") #remove them
+ 
+# Use fossilbrush to clean taxonomic errors
+b_ranks <- c("phylum", "class", "order", "family", "accepted_name") #accepted_name is genus name
+
+# Define a list of suffixes to be used at each taxonomic level when scanning for synonyms
+b_suff = list(NULL, NULL, NULL, NULL, c("ina", "ella", "etta"))
+
+pbdb2 <- check_taxonomy(pbdb, suff_set = b_suff, ranks = b_ranks, verbose = FALSE,clean_name = TRUE, resolve_duplicates = TRUE, jump = 5)
+# resolves homonyms, and jump refers to which taxonomic rank is the highest we resolve to. jump = 5 will stop before phylum since phylum level usually has little error.
+```
+
+Next, follow all the steps from **Visualization of Cells and Occurrences** down to **Czekanowski indices** again. You will notice slight changes to the number of cells since filtering out the wastebin taxa reduces the number of occurrences we have. In the case of K-pg, for example, the Danian now has 22 cells instead of 23, which can be seen by entering `View(after_centroid)` into the console.
+
+### Extra: Spatial standardization
+
+Here, we will apply the `Divvy` package to spatially standardize our data using the circular "cookie" method and re-run our Jaccard calculations with the standarized data.
+
+```{r Divvy, message=FALSE, warning=FALSE}
+ pbdb <-read.csv(file = '~/Documents/BioHom/pbdb.data.Nov2024.csv')
+
+# Adjust radiometric ages
+interval.ma    <- pbdb |> 
+  group_by(early_interval) |> 
+ summarise(min_ma = min(min_ma))
+names(interval.ma) <-c("early_interval", "interval.ma")
+pbdb       <- merge(pbdb, interval.ma, by=c("early_interval"))
+
+# Find first and last occurrences and merge back into data frame, using min_ma column
+fadlad <- pbdb |> 
+  group_by(accepted_name)  |> 
+  summarise(
+    fad = max(interval.ma),
+    lad = min(interval.ma)
+  )
+
+# Merge fad and lad information into data frame
+pbdb <- merge(pbdb, fadlad, by=c("accepted_name"))
+
+# Add extinction/survivor binary variable
+pbdb$ex <- 0
+pbdb$ex[pbdb$interval.ma==pbdb$lad] <- 1
+
+# Select variables.
+pbdb <- pbdb |> 
+  select(any_of(c("interval.ma","early_interval","interval.ma","fad","lad",
+                  "accepted_name","genus","ex","phylum","class",
+                  "order","family","paleolat","paleolng","formation","member",
+                  "occurrence_no","collection_no","collection_name",
+                  "reference_no")))
+
+# Keep the classes we want.
+ pbdb <- pbdb |> 
+     filter(class %in% c("Gastropoda", "Bivalvia", "Trilobita", "Rhynchonellata", "Strophomenata", "Anthozoa") &
+    interval.ma %in% c("66", "61.6"))
+ 
+# Identify Invalid Coordinates.
+  cl <- cc_val(pbdb, value = "flagged", lat="paleolat", lon  ="paleolng") #flags incorrect coordinates
+  cl_rec <- pbdb[!cl,] #extract and check them
+  
+ pbdb <- pbdb |> 
+   cc_val(lat = "paleolat", lon="paleolng") #remove them
+ 
+# Use fossilbrush to clean taxonomic errors
+b_ranks <- c("phylum", "class", "order", "family", "accepted_name") #accepted_name is genus name
+
+# Define a list of suffixes to be used at each taxonomic level when scanning for synonyms
+b_suff = list(NULL, NULL, NULL, NULL, c("ina", "ella", "etta"))
+
+pbdb2 <- check_taxonomy(pbdb, suff_set = b_suff, ranks = b_ranks, verbose = FALSE,clean_name = TRUE, resolve_duplicates = TRUE, jump = 5)
+# resolves homonyms, and jump refers to which taxonomic rank is the highest we resolve to. jump = 5 will stop before phylum since phylum level usually has little error.
+
+# Extract PBDB data from pbdb2 so we have the corrected taxa:
+pbdb <- pbdb2$data[1:nrow(pbdb),]
+
+
+# Make sure coordinates are numerical
+pbdb$paleolat <- as.numeric(pbdb$paleolat)
+pbdb$paleolng <- as.numeric(pbdb$paleolng)
+
+# Subset by age
+pbdb.before <- pbdb |> filter(early_interval == "Maastrichtian")
+pbdb.after<- pbdb |> filter(early_interval == "Danian")
+
+# Get the frequency of each genus, then keep top 20 of them. these are our wastebasket genera
+ 
+#initialize equal earth projections and coordinate:
+rWorld <-rast()
+prj <- 'EPSG:8857'
+rPrj <- project(rWorld, prj, res = 450000) #  similar to our original grid, but this is a rasterized cell grid instead.
+terra::values(rPrj) <- 1:ncell(rPrj)
+
+# coordinate column names for the current and target coordinate reference system
+xyCartes <- c('paleolng','paleolat')
+xyCell   <- c('cellX','cellY')
+
+```
+
+Before, spatially standardized:
+
+```{r, warning=FALSE}
+# extract cell number and centroid coordinates associated with each occurrence
+llOccs <- vect(pbdb.before, geom = xyCartes, crs = 'epsg:4326')
+prjOccs <- terra::project(llOccs, prj)
+pbdb.before$cell <- cells(rPrj, prjOccs)[,'cell']
+pbdb.before[, xyCell] <- xyFromCell(rPrj, 
+                                pbdb.before$cell)
+
+sdSumry(pbdb.before, taxVar = 'accepted_name', xy = xyCell, crs = prj) |> 
+  print()
+# Disregard SCOR 
+
+occUniq <- uniqify(pbdb.before, xyCell)
+ptsUniq <- st_as_sf(occUniq, coords = xyCell, crs = prj)
+
+
+worldP <- ggplot(data = plates.kpg$geometry) +
+  theme_bw() +
+  geom_sf() +
+  geom_sf(data = ptsUniq, shape = 16, color = 'red3')
+
+plot(worldP)
+
+# Circular subsampling technique
+set.seed(11)
+circLocs <- cookies(dat = pbdb.before,
+                    xy = xyCell,
+                    iter = 1000, # number of iterations
+                    nSite = 6, # number of cells
+                    r = 1000, # radial distance in km
+                    weight = TRUE, 
+                    crs = prj, # Equal Earth projection
+                    output = 'full')
+
+smplPts <- st_as_sf(circLocs[[1]], coords = xyCell, crs = prj)
+cntr <- smplPts[1,]
+
+r = 1000
+buf <- st_buffer(cntr, dist = r*1000)
+
+
+worldP +
+  geom_sf(data = smplPts, shape = 17, color = 'navyblue') +
+  geom_sf(data = buf, fill = NA, linewidth = 1, color = 'navyblue')
+
+```
+
+CircLocs now has 100 lists of subsampled occurrences which can be viewed with `str(circLocs[[1]])`:
+
+```{r}
+
+str(circLocs[[1]])
+
+circLocs_before <- circLocs 
+
+```
+
+Now, for the same thing with the "after" age.
+
+**After, spatially standardized:**
+
+```{r, warning=FALSE, message=FALSE}
+
+# extract cell number and centroid coordinates associated with each occurrence
+llOccs <- vect(pbdb.after, geom = xyCartes, crs = 'epsg:4326')
+prjOccs <- terra::project(llOccs, prj)
+pbdb.after$cell <- cells(rPrj, prjOccs)[,'cell']
+pbdb.after[, xyCell] <- xyFromCell(rPrj, 
+                                pbdb.after$cell)
+
+sdSumry(pbdb.after, taxVar = 'accepted_name', xy = xyCell, crs = prj) |> 
+  print()
+# For the kpg, there are just over 5000 unique taxon-site occurrences, including 1387 genera from 75 grid cells across 137 degrees latitude. 
+
+# Disregard SCOR 
+
+occUniq <- uniqify(pbdb.after, xyCell)
+ptsUniq <- st_as_sf(occUniq, coords = xyCell, crs = prj)
+
+
+worldP <- ggplot(data = plates.kpg$geometry) +
+  theme_bw() +
+  geom_sf() +
+  geom_sf(data = ptsUniq, shape = 16, color = 'red3')
+
+plot(worldP)
+
+# Circular subsampling technique
+set.seed(11)
+circLocsAft <- cookies(dat = pbdb.after,
+                    xy = xyCell,
+                    iter = 1000, # number of iterations
+                    nSite = 6, # number of cells
+                    r = 1000, # radial distance in km
+                    weight = TRUE, 
+                    crs = prj, # Equal Earth projection
+                    output = 'full')
+
+smplPts <- st_as_sf(circLocsAft[[1]], coords = xyCell, crs = prj)
+cntr <- smplPts[1,]
+
+r = 1000
+buf <- st_buffer(cntr, dist = r*1000)
+
+
+worldP +
+  geom_sf(data = smplPts, shape = 17, color = 'navyblue') +
+  geom_sf(data = buf, fill = NA, linewidth = 1, color = 'navyblue')
+
+
+
+```
+
+Next, we will check to see how many InF values we have in `sdSumry$SCOR`. This won't matter for most interval-pairs, but for the P-T and LOME intervals in which homogenization does occur, it's a sanity check to understand why the SCOR does not reflect homogenization -- taxon that are present in all cells analyzed here are given an InF score instead of a numerical value and are not included in the SCOR calculation. As per the [Divvy vignette](https://gawainantell.github.io/divvy/articles/habitat-rangesize-case-study.html) walkthrough: "When a taxon is present in all sampled locations, its log probability of incidence is infinite. Infinity is nonsensical in an empirical comparison (...)."
+
+Since we won't use SCOR beyond this next chunk of code, the SCOR value will not affect our Jaccard calculations even for homogenized intervals, so we can still spatially standardize the data and see how that effects the Jaccard values.
+
+```{r, message=FALSE, warning=FALSE}
+sdbef <- sdSumry(circLocs, taxVar = 'genus', xy = xyCell, crs = prj)
+sdaft <- sdSumry(circLocsAft, taxVar = 'genus', xy = xyCell, crs = prj) #tons of InF scores here in PT and LOME indicating widespread occurrences and homogenization has occurred.
+
+is.infinite(sdaft$SCOR) # occurrences that are everywhere are labeled InF. We need to change this to 100 to reflect that they are everywhere, but I don't know how to do that. So, ignore SCOR for now.
+
+# before
+sdbef_inf <- lapply(sdbef, function(x) {
+  replace(x, is.infinite(x), 100)
+})
+sdbef_mean <- mean(sdbef_inf$SCOR)
+
+
+# after:
+sdaft_inf <- lapply(sdaft, function(x) {
+  replace(x, is.infinite(x), 100)
+})
+sdaft_mean <- mean(sdaft_inf$SCOR)
+```
+
+Now, we will calculate the spatially standardized Jaccard similarity for each geologic age:
+
+```{r, warning=FALSE, message=FALSE}
+# before.
+before_jaccard <- 
+  jaccard_similarity(circLocs)
+
+# after.
+after_jaccard <- 
+  jaccard_similarity(circLocsAft)
+
+
+#before
+ave_before_jaccard <- 
+  bind_rows(before_jaccard) |>
+  group_by(cell_x, cell_y) |> 
+  summarise(avg_jaccard = mean(jaccard_similarity)) |> 
+  rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+
+# after
+ave_after_jaccard <- 
+  bind_rows(after_jaccard) |>
+  group_by(cell_x, cell_y) |> 
+  summarise(avg_jaccard = mean(jaccard_similarity)) |> 
+  rename("x.cell" = "cell_x", "y.cell" = "cell_y")
+```
+
+Here is the average Jaccard value for the "Before" interval which has been spatially standardized:
+
+***Before:***
+
+```{r}
+
+mean(ave_before_jaccard$avg_jaccard)
+
+```
+
+Here is the average Jaccard value for the "After" interval which has been spatially standardized:
+
+***After:***
+
+```{r}
+
+mean(ave_after_jaccard$avg_jaccard)
+
+
+```
+
+As a final note, what we just analyzed is the average global Jaccard value of the spatially standardized data, and does not separate similarity as a function of distance the way the main calculations do. So, that one number is a global value after the end-Cretaceous, which agrees with our Jaccard calculations beforehand. What we calculated in `Results` beforehand also shows that most of the lowered similarity is from cells that are farther apart from one another and that, for this interval, similarity varies regionally.

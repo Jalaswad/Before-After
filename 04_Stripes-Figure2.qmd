@@ -1,0 +1,282 @@
+---
+title: "Supplementary Data - Phanerozoic Climate Stripes"
+title-block-banner: "#014240"
+title-block-banner-color: "#FFFFFF"
+subtitle: "Climatic and Taxonomic Controls on the Simplification and Connectedness of Marine Ecosystems"
+description: "Jood Al Aswad<sup>1*</sup>, Mohamad Bazzi<sup>1</sup>, Justin L. Penn<sup>2</sup>, Pedro Monarrez<sup>1</sup> <sup>3</sup>,  Curtis Deutsch<sup>2</sup>, Jonathan L. Payne<sup>1</sup><br>"
+date: last-modified
+date-format: "YYYY-MM-DD"
+mainfont: Figtree
+sansfont: Figtree
+footnotes-hover: true
+reference-location: margin
+lang: en
+number-sections: false
+crossref:
+  chapters: true
+author:
+  - name: Jood Al Aswad
+    orcid: https://orcid.org/0000-0003-4360-7665
+    email: jalaswad@stanford.edu
+    url: https://github.com/Jalaswad
+    affiliations:
+      - name: Stanford University
+        department: Department of Earth and Planetary Sciences
+        address: CA 94305
+        country: USA
+        url: https://sustainability.stanford.edu/
+highlight-style: pygments
+fig-cap-location: top
+format:
+ html:
+    toc: true
+    toc-expand: 5
+    toc-location: left
+    code-fold: true
+    html-math-method: katex
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Climate Stripes
+
+Load in the dataset from the Supplementary Materials of *Scotese (2021)*, which has the average global temperature per million years. In that file, you should calculate the average temperature per geologic age. If you can't do that, then no worries! The file *Scotese_intervalT.csv* is made available in Github for you to use and has all the information needed for this script.
+
+\
+The following block of code creates two plots: The first is a climate stripe of Global Average Temperature (in degrees C) per geologic age, and the second is a climate stripe of climate *change* per geologic age (e.g., the Induan age became 5 degrees warmer than its previous age, the Changhsingian):
+
+```{r climate, echo =TRUE}
+
+library(tidyverse) #(to use |> and to code more cleanly)
+Temps <- read.csv(file='~/Documents/BioHom/Temperature-change/Scotese_intervalT.csv')
+Temps <- Temps |> select (-c(ScoteseAge, GAT,T_change_1 )) #remove unwanted columns
+Temps <- na.omit(Temps)
+        
+# Make the values numeric,except for the age number, which is factor
+Temps$ave_T <- as.numeric(Temps$ave_T)
+Temps$T_change <- as.numeric(Temps$T_change)
+Temps <- Temps[order(-Temps$Age), ]  #this will reverse the x axis
+Temps$Age <- factor(Temps$Age, levels =(Temps$Age)) # make it go in sequential order
+
+# Draw the plot:
+library(ggplot2)
+phan_climate<- Temps |> 
+  ggplot(aes(x = factor(Age), y = 1, fill = ave_T)) +
+  geom_tile() +
+  theme_void() +
+  theme(legend.position = "none") +
+  labs(title = "Mean Global Temperature by Age (°C)")+
+  scale_fill_gradient2(
+    low = "#39A9C9",     # Cooler than 18
+    mid = "#F8F8FF",        # Exactly 18
+    high = "red3",            # Warmer than 18
+    midpoint = 18, 
+    #18 degrees is the divide between icecaps and no icecaps in Scotese et al. (2021)
+    name = "Global Ave Temp by Geologic (°C)"
+  ) +
+   geom_text(aes(label = Age), y = 0.95, size = 2.5, angle = 90, vjust = 1.5) +
+   # the above line adds labels to keep track of which stripe corresponds to which age
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    plot.margin = margin(20, 10, 40, 10) # Bottom space for custom labels
+  )
+phan_climate
+ 
+ # Make sure Ma is ordered and treated as a factor
+Temps$Ma <- factor(Temps$Age, levels = rev(levels(Temps$Age))) #levels = rev() will reverse the x axis
+Temps$T_change <- as.numeric(Temps$T_change)
+# Plot the climate stripes
+
+climate_plot <- Temps |> 
+  ggplot( aes(x = Age, y = 1, fill = T_change)) +
+  geom_tile() +
+  labs(title = "Climate Change per Geologic Age")+
+  scale_fill_gradient2(
+    low = "#39A9C9",       # For negative values
+    mid = "#F8F8FF",      # For zero
+    high = "red3",       # For positive values
+    midpoint = 0,       # Center the scale at 0
+    name = "Climate Change (°C)"
+  ) +
+  theme_void() +
+ geom_text(aes(label = Age), y = 0.95, size = 2.5, angle = 90, vjust = 1.5) +
+  labs(title = "T Change by Geologic Age") +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    aspect.ratio = 0.25, # get the ratio of plot defined so it matches with the Foote bars 
+     plot.margin = margin(20, 10, 40, 10) # Bottom space for custom labels
+  )
+climate_plot
+
+
+ggsave("phan_climate.pdf", plot = phan_climate, width = 8, height = 6, dpi = 300)
+ggsave("climate-plot.pdf", plot = climate_plot, width = 8, height = 6, dpi = 300)
+
+```
+
+## Foote's calculation of per-capita extinction rate
+
+Net we calculate Foote's per-capita extinction rate using the simple equation from his 2000 publication. This was the gray portion of Figure 1, which was overlaid on the climate stripe:
+
+Now, let's load in and clean the data. You can find the Pbdb .csv file in our Github repository as well.
+
+```{r pbdb}
+#read in the Phanerozoic pbdb dataset
+pbdb <-read.csv(file = '~/Documents/BioHom/pbdb.data.Nov2024.csv')
+
+interval.ma    <-  pbdb |> 
+  filter(!is.na(early_interval) & !is.na(min_ma)) |> 
+  group_by(early_interval) |> 
+ summarise(min_ma = min(min_ma))
+names(interval.ma) <-c("early_interval", "interval.ma")
+pbdb       <- merge(pbdb, interval.ma, by=c("early_interval"))
+
+# round the digits to keep consistent
+interval.ma <- interval.ma |> 
+  mutate(
+    interval.ma = round(interval.ma, 3)
+  )
+
+
+# Find first and last occurrences and merge back into data frame, using min_ma column
+fadlad <- pbdb |> 
+  group_by(accepted_name)  |> 
+  summarise(
+    fadname = max(early_interval),
+    ladname = min(early_interval),
+    fad = max(interval.ma),
+    lad = min(interval.ma)
+  )
+
+# Round to correct number of digits:
+fadlad <- fadlad |> 
+  mutate(
+    fad = round(fad, 3),
+    lad = round(lad, 3)
+  )
+
+
+# Merge fad and lad information into data frame
+pbdb <- merge(pbdb, fadlad, by=c("accepted_name"))
+
+# Add extinction/survivor binary variable
+pbdb$ex <- 0
+pbdb$ex[pbdb$interval.ma==pbdb$lad] <- 1
+
+# Select variables.
+pbdb <- pbdb |> 
+  select(any_of(c("interval.ma","early_interval","interval.ma","fad","lad",
+                  "accepted_name","genus","ex","phylum","class",
+                  "order","family","paleolat","paleolng","formation","member",
+                  "occurrence_no","collection_no","collection_name",
+                  "reference_no")))
+
+# Keep the classes analyzed in this study
+pbdb <- pbdb |> 
+     filter(class %in% c("Gastropoda", "Bivalvia", "Trilobita", "Rhynchonellata", "Strophomenata", "Anthozoa"))
+ 
+ library(CoordinateCleaner)
+# Identify Invalid Coordinates.
+  cl <- cc_val(pbdb, value = "flagged", lat="paleolat", lon  ="paleolng") #flags incorrect coordinates
+  cl_rec <- pbdb[!cl,] #extract and check them
+  
+ pbdb <- pbdb |> 
+   cc_val(lat = "paleolat", lon="paleolng") #remove them
+ 
+# Use fossilbrush to clean taxonomic errors
+ library(fossilbrush)
+b_ranks <- c("phylum", "class", "order", "family", "accepted_name") #accepted_name is genus name
+
+# Define a list of suffixes to be used at each taxonomic level when scanning for synonyms
+b_suff = list(NULL, NULL, NULL, NULL, c("ina", "ella", "etta"))
+
+pbdb2 <- check_taxonomy(pbdb, suff_set = b_suff, ranks = b_ranks, verbose = FALSE,clean_name = TRUE, resolve_duplicates = TRUE, jump = 5)
+# resolves homonyms, and jump refers to which taxonomic rank is the highest we resolve to. jump = 5 will stop before phylum since phylum level usually has little error.
+
+# Extract PBDB data from obdb2 so we have the corrected taxa:
+pbdb <- pbdb2$data[1:nrow(pbdb),]
+
+
+pbdb_fulldata <- pbdb # keep a record of all pertinent information, just in case
+
+
+#write.csv(pbdb, file=('~/Desktop/BioHom/pbdb_biohom_phan_cleaned.csv'))
+```
+
+Now, we want to calculate Foote's rate of extinction: $$ q = -ln(\frac{N_b}{N_{bt}}) $$ ...where $N_b$ = the number of taxa that originated before the time interval and crossed into it (boundary-crossers), and $N_{bt}$ = the number of taxa that cross into the interval and survive it.
+
+```{r agepairs}
+
+# Create a matrix of age-pairs using interval.ma
+ 
+agepairs <- interval.ma |> 
+  arrange(interval.ma) |> # arrange by age number
+  mutate(
+    next_interval.ma= lead(interval.ma), #get the age number of the next age
+    next_early_interval= lead(early_interval) #get the name of the next age
+  ) |> 
+  filter(!is.na(next_interval.ma)) #remove final row which does not have a next age
+
+```
+
+### Get `Nb` and `Nbt`
+
+$N_{b}$ will be taxa that originated at or before `interval.ma`, and went extinct after or at `next_interval.ma`.
+
+$N_{bt}$ will be taxa that originated at or before `interval.ma`, and went extinct after `next_interval.ma`
+
+```{r nb_nbt}
+extinction_rate <- agepairs |> rowwise() |>  
+  # rowwise is a function in dplyr that treats each row as its own group, so operations inside mutate() or other functions are applied one row at a time, instead of the standard, which is one column at a time 
+ mutate(
+    Nb =  sum(fadlad$fad >= interval.ma      &   fadlad$lad <= next_interval.ma),
+  
+    Nbt = sum(fadlad$lad <  next_interval.ma &   fadlad$fad >= interval.ma),
+    q = ifelse(Nb > 0 & Nbt > 0, -log(Nbt / Nb), NA_real_) ) |> 
+  ungroup()
+
+```
+
+## Foote plot:
+
+```{r ext-plot}
+Temps$Ma <- as.numeric(as.character(Temps$Ma)) 
+extinction_rate$interval.ma <- as.numeric(extinction_rate$interval.ma)
+
+extinction_sub <- extinction_rate |>
+  arrange(desc(interval.ma)) |> 
+  mutate(interval_ma_factor = factor(interval.ma, levels = unique(interval.ma))) #convert interval.ma to factor so we can space each age evenly to match the climate stripe spacing 
+
+extinction_plot <- ggplot(extinction_sub, aes(x = interval_ma_factor, y = q)) + geom_col(fill = "gray50", width=1) + 
+   geom_text(    #label all ages with q > 0.3 # 
+  aes(label = ifelse(q > 0.1, interval.ma, "")), 
+ vjust = -0.5,  size = 3 ) +
+  theme_void() + labs(title = "") + #"Foote's Per Capita Extinction Rate" 
+  theme( axis.text.x = element_blank(), # hide x labels 
+         axis.ticks.x = element_blank(), 
+         plot.margin = margin(0, 10, 10, 10), 
+         plot.title = element_text(hjust =), aspect.ratio = 0.5 )
+
+extinction_plot
+
+```
+
+## Both plots together:
+
+```{r}
+
+library(patchwork)
+foote_climate <- climate_plot / extinction_plot + plot_layout(heights = c(1, 2)) + plot_annotation(title = "Climate Change StripsExtinction")
+
+foote_climate
+
+
+
+```
