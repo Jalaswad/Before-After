@@ -1,14 +1,19 @@
-# Before-After
+<!-- README.md is generated from README.Rmd. -->
 
-# READ ME
+# Interaction of severe climate change and extinctions result in ecosystem simplification across time and space
 
-This GitHub repository contains the data and code used in analysis of all datasets used in our in-prep paper.
+<!-- badges: start -->
+<!-- badges: end -->
 
-by Jood Al Aswad, Mohamad Bazzi, Justin Penn, Pedro Monarrez, Curtis Deutsch and Jonathan Payne
+This GitHub repository contains the code used to analyse all
+datasets presented in **Interaction of severe climate change and extinctions result in ecosystem simplification across time and space**
 
-Code written and maintained by Jood Al Aswad and Mohamad Bazzi 
+by Jood Al Aswad, Mohamad Bazzi, Justin Penn, Pedro Monarrez, Curtis Deutsch and Jonathan L. Payne
 
-Contact: jalaswad@stanford.edu
+Code written and maintained by Jood Al Aswad and Mohamad Bazzi
+<br/>
+Contact:
+<jalaswad@stanford.edu> and <bazzi@stanford.edu>
 
 **All codes and data used in this paper are provided here for reproducibility.**
 
@@ -24,20 +29,16 @@ The recommended order to go through the code is:
 
  The .qmd files are Quarto markdown files for R and RStudio.
 
-Access the study’s .Rdata object, containing all data and results, using: piggyback!
+## Access .Rdata
 
-# This R code shows how to access a .Rdata file from a GitHub release using the piggyback package.
+Larger assets can be accessed from within a report using
+[`piggyback`](https://github.com/ropensci/piggyback)!
+
+``` r
+# Install and load R package
+require(piggyback)
+
+# Create temporary directory and load .Rdata into R environment,
+pb_download(file = "default.RData",dest = tempdir(),repo = "mohabazzi/AptianShark",tag = "v.01")
+load(file = file.path(tempdir(),"default.RData"))
 ```
-# 1. First install and load the piggyback package.
-# 2. Create a temporary directory and download the default.RData file from the specified GitHub repository release version using the pb_download() function.
-# 3. Finally, load the downloaded .Rdata file into the R environment using the load() function.
-
- install.packages(piggyback)
- require(piggyback)
-
- Create temporary directory and load .Rdata into R environment.
- pb_download(file = "default.RData",dest = tempdir(),repo = "jalaswad/end-Permian-Homogenization",tag = "v1.0.0")
- load(file = file.path(tempdir(),"default.RData"))
-
-```
-
