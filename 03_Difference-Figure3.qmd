@@ -332,7 +332,6 @@ before_PT =
   filter(label == 'After') |> 
   group_by(cutdist,ID) |>
  mutate(ave_before = avg) |>
-  ungroup() |>
  select(ave_before)
 
 # After:
@@ -347,8 +346,8 @@ after_LOME =
 
 after_PT = 
   PT_Jacc |>
-  filter(label == 'After-2') |> 
   group_by(cutdist,ID) |>
+  filter(label == 'After-2') |> 
  mutate(ave_after = avg) |>
 ungroup() |> 
   select(ave_after) # only this column is selected
@@ -367,7 +366,7 @@ LOME_Jacc<- LOME_Jacc |>
 
 Jacc <- rbind(all_Jacc_diff,LOME_Jacc)
 
-PT_Jacc<- PT_Jacc |> 
+PT_Jacc <- PT_Jacc |> 
   mutate(Tavg_diff = ave_after - ave_before ) 
 
 Jacc <- rbind(Jacc,PT_Jacc)
@@ -428,20 +427,19 @@ Here we create two plots to examine the change in similarity for each interval p
 # background versus mass extinctions plot:
 all_Jacc_noOlen <- filter(Jacc, !(ID =="PT2" ))
 
-Plot.allJacc<-  all_Jacc_noOlen |> 
+Plot.allJacc <-  all_Jacc_noOlen |> 
   ggplot(aes(x = cutdist, 
              y = Tavg_diff,
              group = ID, 
              colour = mass)) +     
-  geom_line(linewidth = 0.7, position = position_dodge(width = 0.3)) + 
+  geom_line(linewidth = 1.2, position = position_dodge(width = 0.3)) + 
   ylim(-0.25, 0.25) +
   geom_hline(yintercept = 0, linewidth = 0.5) + 
-  scale_color_manual(values = c("grey50", "#CC0033")) + 
+  scale_color_manual(values = c("grey50", "#CC0033")) +
+
   labs(
     x = "Great Circle Distance (km)",
     y = "Change in Similarity", 
-    title = "Jaccard", 
-    subtitle = "Similarity Differences", 
     colour = "Extinction type"
   ) +
   theme_light() +
@@ -450,8 +448,9 @@ Plot.allJacc<-  all_Jacc_noOlen |>
     aes(x = cutdist, ymin = mean_min, ymax = mean_max), 
     fill = "grey50", 
     alpha = 0.3, 
-    inherit.aes = FALSE #use this or there will be an error
-  )
+    inherit.aes = FALSE, #use this or there will be an error
+  )+
+  theme(aspect.ratio = 1)
 Plot.allJacc
 
 ggsave("plot.allJacc.pdf", plot = Plot.allJacc, width = 10, height =6 , units = "in", dpi = 300)
@@ -465,7 +464,7 @@ Plot.Jacc3 <- all_Jacc3 |>
              y = Tavg_diff,
              group = ID, 
              colour = ID)) +     
-  geom_line(linewidth = 0.7, position = position_dodge(width = 0.3)) + ylim(-0.25, 0.25) +
+  geom_line(linewidth = 1.2, position = position_dodge(width = 0.3)) + ylim(-0.25, 0.25) +
   geom_hline(yintercept=0, linewidth=0.5) + 
 scale_color_manual(values = c( "chocolate4","tan2", "dodgerblue2","skyblue2")) +
    geom_ribbon(
@@ -477,8 +476,6 @@ scale_color_manual(values = c( "chocolate4","tan2", "dodgerblue2","skyblue2")) +
   )+
 labs(x = "Great Circle Distance (km)",
      y = "Change in Similarity", 
-     title = "Jaccard", 
-     subtitle = "Similarity Differences", 
      colour = "Extinction type") +
   theme_light() +
   theme(plot.title = element_text(face = "bold"),
