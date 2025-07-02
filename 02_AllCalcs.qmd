@@ -204,13 +204,6 @@ czekanowski_data_prep <- function(x, cell, accepted_name) {
     return(result)
 }
 
-# To calculate BC:
-BC <- function(genera, localities) {
-  O <- length(genera) # occs
-  N <- length(unique(genera)) # genera
-  L <- length(unique(localities))
-  return((O-N)/((L*N)-N))
-}
 ```
 
 ## Paleobiology Database
@@ -222,67 +215,76 @@ The following script shows you how we processed the full Phanerozoic `Pbdb` data
 However, since that requires you to download the data yourself, we have provided the files of `Pbdb` data used for each interval pair in the `Pbdb_data` folder and this section of the script can therefore be skipped. In the case of the end-Cretaceous, it is labelled `pbdb_kpg.csv` within that folder. So, you have the option to simply load in that file and skip this section if you so choose!
 
 ```{r,message=FALSE}
-# Read occurrence dataset.
- pbdb <-read.csv(file = '~/Documents/BioHom/pbdb.data.Nov2024.csv')
 
-#If you want to skip this section using the pre-processed file, use this instead and skip all other lines in this section:
-#  pbdb <-read.csv(file = '~/Documents/BioHom/pbdb_kpg.csv')
 
-# Adjust radiometric ages
-interval.ma    <- pbdb |> 
-  group_by(early_interval) |> 
- summarise(min_ma = min(min_ma))
-names(interval.ma) <-c("early_interval", "interval.ma")
-pbdb       <- merge(pbdb, interval.ma, by=c("early_interval"))
+# Load the csv file directly from our repository: 
+pbdb <- read.csv("https://raw.githubusercontent.com/Jalaswad/Before-After/refs/heads/main/Pbdb-files/pbdb_kpg.csv")
+pbdb <- pbdb[, -c(1, 22, 21)]
 
-# Find first and last occurrences and merge back into data frame, using min_ma column
-fadlad <- pbdb |> 
-  group_by(accepted_name)  |> 
-  summarise(
-    fad = max(interval.ma),
-    lad = min(interval.ma)
-  )
 
-# Merge fad and lad information into data frame
-pbdb <- merge(pbdb, fadlad, by=c("accepted_name"))
-
-# Add extinction/survivor binary variable
-pbdb$ex <- 0
-pbdb$ex[pbdb$interval.ma==pbdb$lad] <- 1
-
-# Select variables.
-pbdb <- pbdb |> 
-  select(any_of(c("interval.ma","early_interval","interval.ma","fad","lad",
-                  "accepted_name","genus","ex","phylum","class",
-                  "order","family","paleolat","paleolng","formation","member",
-                  "occurrence_no","collection_no","collection_name",
-                  "reference_no")))
-
-# Keep two classes and select the age-pair you want.
- pbdb <- pbdb |> 
-     filter(class %in% c("Gastropoda", "Bivalvia", "Trilobita", "Rhynchonellata", "Strophomenata", "Anthozoa") &
-    interval.ma %in% c("66", "61.6"))
  
-# Identify Invalid Coordinates.
-  cl <- cc_val(pbdb, value = "flagged", lat="paleolat", lon  ="paleolng") #flags incorrect coordinates
-  cl_rec <- pbdb[!cl,] #extract and check them
-  
- pbdb <- pbdb |> 
-   cc_val(lat = "paleolat", lon="paleolng") #remove them
+ #If you want to process the raw Phanerozoic-level dataset from 01 yourself, then follow the rest of this chunk of code instead and remove the hashtags from this section using ctrl (or command) + shift + C.
  
-# Use fossilbrush to clean taxonomic errors
-b_ranks <- c("phylum", "class", "order", "family", "accepted_name") #accepted_name is genus name
+ 
+# Read occurrence dataset you generated in step 01. Replace the directory with the one of where you stored it:
+# pbdb <-read.csv(file = '~/Documents/BioHom/pbdb.data.Nov2024.csv')
 
-# Define a list of suffixes to be used at each taxonomic level when scanning for synonyms
-b_suff = list(NULL, NULL, NULL, NULL, c("ina", "ella", "etta"))
-
-pbdb2 <- check_taxonomy(pbdb, suff_set = b_suff, ranks = b_ranks, verbose = FALSE,clean_name = TRUE, resolve_duplicates = TRUE, jump = 5)
-# resolves homonyms, and jump refers to which taxonomic rank is the highest we resolve to. jump = 5 will stop before phylum since phylum level usually has little error.
-
-# Extract PBDB data from obdb2 so we have the corrected taxa:
-pbdb <- pbdb2$data[1:nrow(pbdb),]
-
-pbdb_fulldata <- pbdb # keep a record of all pertinent information, just in case
+ 
+# # Adjust radiometric ages
+# interval.ma    <- pbdb |> 
+#   group_by(early_interval) |> 
+#  summarise(min_ma = min(min_ma))
+# names(interval.ma) <-c("early_interval", "interval.ma")
+# pbdb       <- merge(pbdb, interval.ma, by=c("early_interval"))
+# 
+# # Find first and last occurrences and merge back into data frame, using min_ma column
+# fadlad <- pbdb |> 
+#   group_by(accepted_name)  |> 
+#   summarise(
+#     fad = max(interval.ma),
+#     lad = min(interval.ma)
+#   )
+# 
+# # Merge fad and lad information into data frame
+# pbdb <- merge(pbdb, fadlad, by=c("accepted_name"))
+# 
+# # Add extinction/survivor binary variable
+# pbdb$ex <- 0
+# pbdb$ex[pbdb$interval.ma==pbdb$lad] <- 1
+# 
+# # Select variables.
+# pbdb <- pbdb |> 
+#   select(any_of(c("interval.ma","early_interval","interval.ma","fad","lad",
+#                   "accepted_name","genus","ex","phylum","class",
+#                   "order","family","paleolat","paleolng","formation","member",
+#                   "occurrence_no","collection_no","collection_name",
+#                   "reference_no")))
+# 
+# # Keep two classes and select the age-pair you want.
+#  pbdb <- pbdb |> 
+#      filter(class %in% c("Gastropoda", "Bivalvia", "Trilobita", "Rhynchonellata", "Strophomenata", "Anthozoa") &
+#     interval.ma %in% c("66", "61.6"))
+#  
+# # Identify Invalid Coordinates.
+#   cl <- cc_val(pbdb, value = "flagged", lat="paleolat", lon  ="paleolng") #flags incorrect coordinates
+#   cl_rec <- pbdb[!cl,] #extract and check them
+#   
+#  pbdb <- pbdb |> 
+#    cc_val(lat = "paleolat", lon="paleolng") #remove them
+#  
+# # Use fossilbrush to clean taxonomic errors
+# b_ranks <- c("phylum", "class", "order", "family", "accepted_name") #accepted_name is genus name
+# 
+# # Define a list of suffixes to be used at each taxonomic level when scanning for synonyms
+# b_suff = list(NULL, NULL, NULL, NULL, c("ina", "ella", "etta"))
+# 
+# pbdb2 <- check_taxonomy(pbdb, suff_set = b_suff, ranks = b_ranks, verbose = FALSE,clean_name = TRUE, resolve_duplicates = TRUE, jump = 5)
+# # resolves homonyms, and jump refers to which taxonomic rank is the highest we resolve to. jump = 5 will stop before phylum since phylum level usually has little error.
+# 
+# # Extract PBDB data from obdb2 so we have the corrected taxa:
+# pbdb <- pbdb2$data[1:nrow(pbdb),]
+# 
+# pbdb_fulldata <- pbdb # keep a record of all pertinent information, just in case
 
 
 ```
@@ -293,43 +295,45 @@ The globe is divided into a grid of equal-area icosahedral hexagonal cells using
 
 ```{r, message=FALSE}
 
+# Use this chunk of code if you are processing the raw dataset yourself. Otherwise, skip it please, as it's already in the kpg dataset.
+# 
 # Split by age
   pbdb.2before <- pbdb |> filter(interval.ma==66)
   pbdb.2after <- pbdb |> filter(interval.ma==61.6)
 
 # Find raw locations for each stage
-coords.before <- subset(pbdb.2before, select = c(paleolng, paleolat)) 
-coords.before <- coords.before |>  
+coords.before <- subset(pbdb.2before, select = c(paleolng, paleolat))
+coords.before <- coords.before |>
                           mutate_at(c('paleolng', 'paleolat'), as.numeric)
-coords.after<- subset(pbdb.2after, select = c(paleolng, paleolat)) 
-coords.after <- coords.after |>  
+coords.after<- subset(pbdb.2after, select = c(paleolng, paleolat))
+coords.after <- coords.after |>
                           mutate_at(c('paleolng', 'paleolat'), as.numeric)
 
 # Set up the grid
-hexa <- hexagrid(deg= 4.5, sf=TRUE) #each deg = ~111 km
-hexa
-
-# Find cell locations for each occurrence
-cells.before <-locate(hexa, coords.before) 
-# str(cells.before) #to see which cells have occ's
-cells.after <-locate(hexa, coords.after)
-#str(cells.after)
-
-# Next add cells df to coords df in order to match cells with their coordinates:
-coords.before$cell <- cells.before 
+ hexa <- hexagrid(deg= 4.5, sf=TRUE) #each deg = ~111 km
+ hexa
+# 
+# # Find cell locations for each occurrence
+ cells.before <-locate(hexa, coords.before) 
+ # str(cells.before) #to see which cells have occ's
+ cells.after <-locate(hexa, coords.after)
+ #str(cells.after)
+# 
+# # Next add cells df to coords df in order to match cells with their coordinates:
+ coords.before$cell <- cells.before 
 names(coords.before) <- c("long", "lat", "cell")
-coords.after$cell <- cells.after 
+ coords.after$cell <- cells.after 
 names(coords.after) <- c("long", "lat", "cell")
-
-tcells.before <- table(cells.before) #to get no. of occupied cells
-#str(tcells.cha) #get frequency of cell occ's
-tcells.after <- table(cells.after)
-#str(tcells.ind)
-
-data.2before <- cbind(pbdb.2before, coords.before) #assigns cell number for each occurrence
-data.2after <- cbind(pbdb.2after, coords.after)
-
-pbdb <- rbind(data.2before, data.2after)
+# 
+ tcells.before <- table(cells.before) #to get no. of occupied cells
+ #str(tcells.cha) #get frequency of cell occ's
+ tcells.after <- table(cells.after)
+ #str(tcells.ind)
+# 
+# data.2before <- cbind(pbdb.2before, coords.before) #assigns cell number for each occurrence
+# data.2after <- cbind(pbdb.2after, coords.after)
+# 
+# pbdb <- rbind(data.2before, data.2after)
 ```
 
 **Grid Plots**
@@ -406,30 +410,6 @@ We investigate the data by dividing it by stage and taxonomic class. We determin
 
 ```{r, message=FALSE}
 
-#Colorblind friendly colors:
-cb <- c(
-  "Blue" = "#0072B2",
-  "Orange" = "#D95F02",
-  "Sky Blue" = "#56B4E9",
-  "Yellow" = "#F0E442",
-  "Green" = "#009E73",
-  "Red" = "#E41A1C",
-  "Purple" = "#984EA3",
-  "Brown" = "#A55E2D",
-  "Gray" = "#999999",
-  "Teal" = "#009A99",
-  "Dark Blue" = "#003F5C",
-  "Light Blue" = "#7A9B9A",
-  "Coral" = "#FF6F61",
-  "Lime Green" = "#A8D200",
-  "Dark Green" = "#4B8DA3",
-  "Gold" = "#FFBF00",
-  "Slate Gray" = "#6A6A6A",
-  "Pink" = "#D5006D",
-  "Olive" = "#7A7B2D",
-  "Mint Green" = "#B8E1B1"
-)
-
 # Data balance.
 pbdb |> 
   group_by(class,early_interval) |> 
@@ -452,84 +432,88 @@ pbdb |>
 # Set min occurrences
 min_occ <- 15
 
-# Maastrichian cells.
-before_pbdb <-
-  pbdb |> 
+# This next part is for processing the raw dataset: 
+
+# # Maastrichian cells.
+ before_pbdb <-
+   pbdb |> 
   filter(early_interval == "Maastrichtian")
+# 
+# before_pbdb <- 
+#   before_pbdb |> 
+#   # Cells.
+#   mutate(cell = locate(x = hexa,y = before_pbdb |> select("paleolng", "paleolat")))
+# 
+# # Count occurrences per cell and filter by minimum occurrence.
+# before_pbdb <-
+#   before_pbdb |> 
+#   group_by(cell) |>
+#   count() |> 
+#   setNames(nm = c("cell","occs")) |> 
+#   inner_join(before_pbdb,by = c("cell")) |>
+#   filter(occs >= min_occ)
+# 
+# 
+# # Cell centroids.
+# before_centroid <- 
+#   as.data.frame(centers(hexa))[names(table(before_pbdb$cell)),] |> 
+#   rownames_to_column(var = "cell")
+# 
+# # Add centroid to master dataframe: Longitude and Latitude.
+# before_pbdb <- 
+#   before_pbdb |> 
+#   left_join(before_centroid, by = "cell")
+# 
+# Danian cells
+ after_pbdb <-
+   pbdb |> 
+   filter(early_interval == "Danian")
+# 
+# after_pbdb <- 
+#  after_pbdb |> 
+#   # Cells.
+#   mutate(cell = locate(x = hexa,y = after_pbdb |> select("paleolng", "paleolat")))
+# 
+# # Count occurrences per cell and filter by minimum occurrence.
+# after_pbdb <-
+#   after_pbdb |> 
+#   group_by(cell) |>
+#   count() |> 
+#   setNames(nm = c("cell","occs")) |> 
+#   inner_join(after_pbdb,by = c("cell")) |>
+#   filter(occs >= min_occ)
+# 
+# # Cell centroids
+# after_centroid <- 
+#   as.data.frame(centers(hexa))[names(table(after_pbdb$cell)),] |> 
+#   rownames_to_column(var = "cell")
+# 
+# # Add centroid coordinates to master dataframe.
+# after_pbdb <- 
+#   after_pbdb |> 
+#   left_join(after_centroid, by = "cell")
+# 
+# # Combine the two datasets: before & after.
+# # The pbdb dataset is has now been fully pre-processed.
+# pbdb <- bind_rows(before_pbdb, after_pbdb)
+# 
+# # Create unique identifier for each cell.
+# pbdb <- 
+#   data.frame(unique(pbdb$cell)) |> 
+#   setNames(nm = "cell") |> 
+#   mutate(cell_id = c(1:length(cell))) |> 
+#   inner_join(pbdb, by = "cell")
+# 
+# # Get number of cells for each age
+# pbdb |> group_by(interval.ma) |> summarise(unique_cells = n_distinct(cell))
 
-before_pbdb <- 
-  before_pbdb |> 
-  # Cells.
-  mutate(cell = locate(x = hexa,y = before_pbdb |> select("paleolng", "paleolat")))
-
-# Count occurrences per cell and filter by minimum occurrence.
-before_pbdb <-
-  before_pbdb |> 
-  group_by(cell) |>
-  count() |> 
-  setNames(nm = c("cell","occs")) |> 
-  inner_join(before_pbdb,by = c("cell")) |>
-  filter(occs >= min_occ)
-
-# Cell centroids.
-before_centroid <- 
-  as.data.frame(centers(hexa))[names(table(before_pbdb$cell)),] |> 
-  rownames_to_column(var = "cell")
-
-# Add centroid to master dataframe: Longitude and Latitude.
-before_pbdb <- 
-  before_pbdb |> 
-  left_join(before_centroid, by = "cell")
-
-# after< cells
-after_pbdb <-
-  pbdb |> 
-  filter(early_interval == "Danian")
-
-after_pbdb <- 
- after_pbdb |> 
-  # Cells.
-  mutate(cell = locate(x = hexa,y = after_pbdb |> select("paleolng", "paleolat")))
-
-# Count occurrences per cell and filter by minimum occurrence.
-after_pbdb <-
-  after_pbdb |> 
-  group_by(cell) |>
-  count() |> 
-  setNames(nm = c("cell","occs")) |> 
-  inner_join(after_pbdb,by = c("cell")) |>
-  filter(occs >= min_occ)
-
-# Cell centroids
-after_centroid <- 
-  as.data.frame(centers(hexa))[names(table(after_pbdb$cell)),] |> 
-  rownames_to_column(var = "cell")
-
-# Add centroid coordinates to master dataframe.
-after_pbdb <- 
-  after_pbdb |> 
-  left_join(after_centroid, by = "cell")
-
-# Combine the two datasets: before & after.
-# The pbdb dataset is has now been fully pre-processed.
-pbdb <- bind_rows(before_pbdb, after_pbdb)
-
-# Create unique identifier for each cell.
-pbdb <- 
-  data.frame(unique(pbdb$cell)) |> 
-  setNames(nm = "cell") |> 
-  mutate(cell_id = c(1:length(cell))) |> 
-  inner_join(pbdb, by = "cell")
-
-# Get number of cells for each age
-pbdb |> group_by(interval.ma) |> summarise(unique_cells = n_distinct(cell))
-
-# Plot number of occurrences per stage and cell.
-cell_text <- 
-  data.frame(
-  label = c("N = 69 cells", "N = 23 cells"),
-  early_interval = c("Maastrichtian", "Danian")
-)
+ 
+ # Plot number of occurrences per stage and cell.
+ cell_text <- 
+   data.frame(
+   label = c("N = 69 cells", "N = 23 cells"),
+   early_interval = c("Maastrichtian", "Danian")
+ )
 
 # Plot it
 pbdb |> 
@@ -703,8 +687,8 @@ ave_after_jaccard <-
 
 ```{r}
 
-colnames(pbdb)[23] <- "lat"
-colnames(pbdb)[22] <- "long" 
+colnames(pbdb)[21] <- "lat"
+colnames(pbdb)[20] <- "long" 
 
 #before
 before_res_matrix <- cells_distinct_pair_before |> 
